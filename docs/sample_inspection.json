@@ -1,0 +1,144 @@
+{
+  "inspection_id": "insp-0001",
+  "url": "https://www.saucedemo.com",
+  "final_url": "https://www.saucedemo.com/",
+  "title": "Swag Labs",
+  "scanned_at": "2026-11-18T16:45:00Z",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "scope_selector": null,
+  "screenshot_path": "data/jobs/insp-0001/screenshot.png",
+  "warnings": [],
+  "elements": [
+    {
+      "element_id": "el-001",
+      "tag": "input",
+      "role": "textbox",
+      "accessible_name": "Username",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "user-name",
+        "name": "user-name",
+        "type": "text",
+        "placeholder": "Username",
+        "data-test": "username"
+      },
+      "css_path": "form > div:nth-of-type(1) > input#user-name",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 490,
+        "y": 220,
+        "width": 300,
+        "height": 40
+      },
+      "locators": [
+        {
+          "strategy": "role",
+          "value": "get_by_role(\"textbox\", name=\"Username\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "placeholder",
+          "value": "get_by_placeholder(\"Username\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#user-name\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test='username']\")",
+          "match_count": 1
+        }
+      ]
+    },
+    {
+      "element_id": "el-002",
+      "tag": "input",
+      "role": null,
+      "accessible_name": "Password",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "password",
+        "name": "password",
+        "type": "password",
+        "placeholder": "Password",
+        "data-test": "password"
+      },
+      "css_path": "form > div:nth-of-type(2) > input#password",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 490,
+        "y": 275,
+        "width": 300,
+        "height": 40
+      },
+      "locators": [
+        {
+          "strategy": "placeholder",
+          "value": "get_by_placeholder(\"Password\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#password\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test='password']\")",
+          "match_count": 1
+        }
+      ]
+    },
+    {
+      "element_id": "el-003",
+      "tag": "input",
+      "role": "button",
+      "accessible_name": "Login",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "login-button",
+        "name": "login-button",
+        "type": "submit",
+        "value": "Login",
+        "data-test": "login-button"
+      },
+      "css_path": "form > input#login-button",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 490,
+        "y": 345,
+        "width": 300,
+        "height": 49
+      },
+      "locators": [
+        {
+          "strategy": "role",
+          "value": "get_by_role(\"button\", name=\"Login\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#login-button\")",
+          "match_count": 1
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test='login-button']\")",
+          "match_count": 1
+        }
+      ]
+    }
+  ]
+}

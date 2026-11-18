@@ -18,6 +18,8 @@ class Settings:
     # Model
     model_provider: str = os.getenv("MODEL_PROVIDER", "groq")
     model_name: str = os.getenv("MODEL_NAME", "openai/gpt-oss-120b")
+    fallback_provider: str = os.getenv("FALLBACK_PROVIDER", "")
+    fallback_model_name: str = os.getenv("FALLBACK_MODEL_NAME", "")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
 
@@ -27,6 +29,7 @@ class Settings:
     )
     runner_timeout: int = int(os.getenv("RUNNER_TIMEOUT", "60"))
     headless: bool = os.getenv("HEADLESS", "false").lower() == "true"
+    browser_hold_seconds: float = float(os.getenv("BROWSER_HOLD_SECONDS", "3"))
 
     # Storage
     data_dir: Path = PROJECT_ROOT / os.getenv("DATA_DIR", "data")
