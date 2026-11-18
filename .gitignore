@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Runtime data (database, job folders, screenshots)
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,19 @@
+# Web app
+fastapi>=0.110
+uvicorn[standard]>=0.29
+jinja2>=3.1
+python-multipart>=0.0.9
+
+# Config and data models
+python-dotenv>=1.0
+pydantic>=2.6
+
+# Browser automation (inspector now, test runner in Phase 2)
+playwright>=1.44
+
+# Model access (Groq and Gemini both expose OpenAI-compatible endpoints)
+openai>=1.30
+
+# Testing (generated tests in Phase 2 + our own tests)
+pytest>=8.0
+pytest-playwright>=0.5

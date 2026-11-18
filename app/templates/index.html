@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/scan">
+  <label for="url">Page to inspect</label><br>
+  <input id="url" name="url" type="url" placeholder="https://www.saucedemo.com" required>
+  <button type="submit" disabled title="Enabled in the inspector task">Scan</button>
+</form>
+<p class="muted">Skeleton running. Scanning is added in the next tasks.</p>
+{% endblock %}

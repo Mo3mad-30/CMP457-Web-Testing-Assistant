@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Testing Assistant{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #ddd; margin-bottom: 1.5rem; }
+    .muted { color: #777; font-size: 0.9rem; }
+    input[type=url] { width: 70%; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Testing Assistant</h1>
+    <span class="muted">Model: {{ model }}</span>
+  </header>
+  {% block content %}{% endblock %}
+</body>
+</html>
