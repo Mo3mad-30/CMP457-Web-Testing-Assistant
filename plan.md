@@ -92,8 +92,8 @@ record. Run `pytest` after every change.
 | Design doc first draft | Done | Mohammad | Google Doc is the main copy |
 | Task 1: Local test page | Done | Mohammad | 10 visible interactive elements + 1 hidden |
 | Task 2: Inspector | Done | Person A (Mohammad) | `runner/inspect_page.py` + 14 tests (18 total passing); manual saucedemo run still to confirm |
-| Task 3: Storage | To do | Person A (Mohammad) | Can start now; push function stubs first (section 6) |
-| Task 4: Runner client + scan pages | To do | Person A (Mohammad) | After Tasks 2 + 3 |
+| Task 3: Storage | Done | Person A (Mohammad) | `app/db.py` + 11 tests (29 total passing); tables created at app startup |
+| Task 4: Runner client + scan pages | Done | Person A (Mohammad) | `app/runner_client.py`, scan/history/screenshot routes, `index.html`, `history.html`; 48 tests passing |
 | Task 5: Findings page | To do | Person B | Can start now against the sample JSON |
 | Task 6: Model client with fallback | To do | Person C | Can start now; storage logging faked |
 | Task 7a: Prompt + validation | To do | Person C | Can start now (schema + sample only) |
@@ -105,7 +105,7 @@ record. Run `pytest` after every change.
 
 | Person | Tasks | Files they own |
 |---|---|---|
-| A (Mohammad) | 2 Inspector (done), 3 Storage, 4 Runner client + scan pages | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
+| A (Mohammad) | 2 Inspector (done), 3 Storage (done), 4 Runner client + scan pages (done) | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
 | B | 5 Findings page | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
 | C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
 
@@ -115,15 +115,15 @@ Shared file: `app/main.py`. Each person adds **only their own routes** (section 
 
 | Task | Needs first | Start now? |
 |---|---|---|
-| 3. Storage | Schema (done) | Yes |
-| 4. Runner client + scan pages | Task 2 (done) + Task 3 | After 3 |
-| 5. Findings page | Real data from Task 4 later; built against the sample now | Yes |
-| 6. Model client | Task 3's `log_model_call` (faked in tests until Task 3 lands) | Yes |
+| 3. Storage | Schema (done) | Done |
+| 4. Runner client + scan pages | Tasks 2 + 3 | Done |
+| 5. Findings page | Real scans now available from Task 4 | Yes |
+| 6. Model client | Task 3's `log_model_call` (done; still faked in unit tests) | Yes |
 | 7a. Prompt + validation | Schema + sample | Yes |
 | 7b. "Ask model" wiring | Tasks 3, 5, 6 | Last |
 
-**Start right away:** Tasks 3, 5, 6, 7a.
-**Critical path:** 3 → 4 → 5 on real data → 7b.
+**Start right away:** Tasks 5, 6, 7a. Person A's tasks (2–4) are done.
+**Critical path:** 5 on real data → 7b.
 
 ---
 
@@ -221,28 +221,31 @@ All `db` functions take an optional `db_path` as the last argument (tests use a 
 |---|---|---|
 | `db.init_db()` | None | `main.py` at startup |
 | `db.save_inspection(inspection: Inspection, json_path: Path)` | None; raises `ValueError` if the id already exists | runner client |
-| `db.get_inspection(inspection_id: str)` | `Inspection` or `None` | B, C |
-| `db.list_inspections()` | `list[dict]`, newest first, keys: `inspection_id`, `url`, `title`, `scanned_at`, `element_count` | A (history page) |
-| `db.save_selection(selection: Selection)` | `int` (row id) | B |
+| `db.get_inspection(inspection_id: str)` | `Inspection` or `None` (unknown id, or its JSON file is missing) | B, C |
+| `db.list_inspections()` | `list[dict]`, newest first, keys: `inspection_id`, `url`, `final_url`, `title`, `scanned_at`, `scope_selector`, `element_count` | A (history page) |
+| `db.save_selection(selection: Selection)` | `int` (row id); raises `ValueError` for an unknown inspection | B |
 | `db.get_latest_selection(inspection_id: str)` | `Selection` or `None` | B, C |
 | `db.log_model_call(record: ModelCallRecord, response_text: str | None = None)` | `int` (row id) | C |
-| `db.list_model_calls(limit: int = 100)` | `list[dict]`, newest first | usage page (later) |
-| `db.export_model_calls_csv(path: Path)` | `Path` | evidence (later) |
+| `db.list_model_calls(limit: int = 100)` | `list[dict]`, newest first, columns in `db.MODEL_CALL_COLUMNS`, `is_fallback` as bool, no response text | usage page (later) |
+| `db.export_model_calls_csv(path: Path)` | `Path`; all calls, oldest first, header = `db.MODEL_CALL_COLUMNS` | evidence (later) |
 | `runner_client.RunnerError` | exception class | A's `/scan` route |
 | `runner_client.new_inspection_id()` | `str` | runner client |
-| `runner_client.run_inspection(url: str, scope: str | None = None)` | `Inspection` (already saved); raises `RunnerError` | A's `/scan` route |
+| `runner_client.run_inspection(url: str, scope: str | None = None)` | `Inspection` (already saved); raises `RunnerError` with a one-line message | A's `/scan` route |
+| `runner_client.validate_url(url: str)` | None; raises `RunnerError` (only http(s), or files in `tests/fixtures/`) | runner client |
+| `tests/conftest.py` → `isolated_settings` fixture | Temporary data folder + database, headless runner, no hold | everyone's tests |
 
 Table names: `inspections`, `elements`, `selections`, `model_calls`, `artifacts` (Phase 2, empty).
 
-**Until Task 3 lands:** B loads the sample with
+**Storage is done (Task 3).** Until scans come from the UI (Task 4), B still loads the sample with
 `Inspection.model_validate_json(Path("docs/sample_inspection.json").read_text())` when the id is
-`sample`; C replaces `db.log_model_call` with a fake in tests (pytest `monkeypatch`).
+`sample`. C can log real calls with `db.log_model_call`, and replaces it with a fake in unit tests
+(pytest `monkeypatch`). Tests pass a temporary `db_path` so they never touch `data/app.db`.
 
 ### 6.6 Routes (`app/main.py`)
 
 | Method + path | Form fields | Renders / does | Owner |
 |---|---|---|---|
-| `GET /` | | `index.html` (scan form, last error) | exists |
+| `GET /` | | `index.html` (scan form with scope, last error) | A |
 | `GET /health` | | JSON config check | exists |
 | `POST /scan` | `url`, `scope` (optional) | Runs the inspector → redirect `303` to `/inspections/{inspection_id}`; on `RunnerError` re-renders `index.html` with `error` | A |
 | `GET /history` | | `history.html` (all scans) | A |
@@ -283,7 +286,7 @@ Rescan = a form on the findings page posting to `POST /scan` with the same `url`
 `_model_panel.html` is included by `findings.html` and reads only `ask`. B builds its layout from the
 `AskResult` fields; C fills them.
 
-`index.html`: `model`, `error`. `history.html`: `model`, `inspections` (from `db.list_inspections()`).
+`index.html`: `model`, `error`, and on a failed scan also `url`, `scope` (so the form keeps the tester's input). `history.html`: `model`, `inspections` (from `db.list_inspections()`). `base.html` has the header with Scan and History links and the model label; pages add their own CSS or scripts in the `head` block.
 
 ---
 
@@ -308,15 +311,16 @@ disabled and hidden handled, scope works, 10 visible elements + 1 hidden warning
 saucedemo scan opens a visible browser and writes a valid file.
 **Result:** built in seven parts (command line and host checks; page loading with navigation allowlist; in-browser element collection; role and accessible name; ranked locator candidates counted on the live page; building the Inspection, screenshot, hold time and exit codes; tests). On the test page it finds exactly 10 visible elements, the hidden one as a warning, both "Help" links as non-unique (count 2, best locator falls back to `#id`), no role for the password field and the disabled button as `enabled: false`. Extra warnings it can report: blocked navigations, page never went network-idle, HTTP error status, scope matched nothing, iframes not inspected.
 
-### Task 3: Storage, Person A
+### Task 3: Storage, Person A (Done)
 **Target:** keep every scan, selection and model call, so later steps use what was really observed
 and usage can be exported as evidence.
 **Must do:** the functions and tables in 6.5; saving the same scan twice is refused; every model-call
 attempt is stored, including fallbacks. **Push stubs with the 6.5 names first** so B and C can import them.
 **Done when:** the sample scan round-trips through the database, selections save and load, and a test
 CSV export works.
+**Result:** built in six parts (database setup and tables; scans with append-only enforced; selections; model-call log and CSV export; table creation at app startup; tests). Paths are stored relative to the project root so the database works on every laptop; foreign keys stop selections for unknown scans; the `elements` table is a quick index while the full data stays in each scan's JSON file.
 
-### Task 4: Runner client + scan pages, Person A
+### Task 4: Runner client + scan pages, Person A (Done)
 **Target:** connect the app to the inspector through the process boundary, with a time limit and
 **no API keys** passed to the runner.
 **Must do:** `run_inspection` (6.5) starts the runner with a minimal environment and a timeout, then
@@ -324,6 +328,7 @@ saves the result; the routes `POST /scan`, `GET /history`, screenshot route (6.6
 "a browser window will open"; a clear error when the runner fails or times out.
 **Done when:** scanning saucedemo from the UI opens the visible browser, then shows the findings page;
 a second scan creates a new record and keeps the old one.
+**Result:** built in four parts (runner client; scan, history and screenshot routes; scan form and history pages with navigation; tests). The runner client accepts only http(s) URLs and local test pages from `tests/fixtures/`, passes the runner only a short list of safe environment variables (never API keys), stops it after page-load limit + hold time + 15 s, and turns failures into one-line messages on the scan form (a blocked host says to add it to `ALLOWED_HOSTS`). The screenshot route serves files only from `data/jobs/`. Tests share a `tests/conftest.py` fixture (`isolated_settings`) that gives each test its own data folder and database. After a scan the app redirects to `/inspections/{id}`, which is Person B's findings page (404 until Task 5 lands).
 
 ### Task 5: Findings page, Person B (Basic human interaction, 2 pts)
 **Target:** show the findings linked to their source page and let the tester select elements, refine
@@ -422,3 +427,6 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 | 2026-11-19 | Owners set: A = Tasks 2–4, B = Task 5, C = Tasks 6–7; Tasks 8–9 deferred; added section 6, Shared names (files, settings, IDs, functions, routes, template variables) |
 | 2026-11-19 | Design doc: added why the runner is a separate process (untrusted pages and generated code, failure containment, brief requirement, one job interface) and why a process rather than a container in Phase 1 |
 | 2026-11-19 | Task 2 done: inspector with measured locators, exact-match names, navigation allowlist, warnings and exit codes; 18 tests passing; design doc inspection section updated |
+| 2026-11-19 | Task 3 done: SQLite storage (append-only scans, selections, every model-call attempt, CSV export), tables created at startup; 29 tests passing; design doc storage section updated |
+| 2026-11-19 | Fix: added httpx to requirements.txt (needed by FastAPI TestClient in test_db.py) |
+| 2026-11-20 | Task 4 done: runner client (URL rules, minimal environment, time limit, one-line errors), scan/history/screenshot routes and pages; Person A's tasks complete; 48 tests passing; design doc runner section updated |
