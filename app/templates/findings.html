@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Findings — {{ inspection.title }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+<script src="{{ url_for('static', path='/app.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<main class="findings" data-inspection-id="{{ inspection.inspection_id }}">
+  <div class="page-heading">
+    <div><p class="eyebrow">INSPECTION / {{ inspection.inspection_id }}</p><h2>{{ inspection.title or 'Untitled page' }}</h2>
+      <a href="{{ inspection.final_url }}" target="_blank" rel="noopener noreferrer" class="source-url">{{ inspection.final_url }}</a></div>
+    <a href="/history" class="subtle-button">History</a>
+  </div>
+  {% if message %}<div role="status" class="notice success">{{ message }}</div>{% endif %}
+  {% if error %}<div role="alert" class="notice error">{{ error }}</div>{% endif %}
+  <div class="facts">
+    <div><span>Scanned (UTC)</span><strong>{{ inspection.scanned_at.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
+    <div><span>Elements found</span><strong>{{ inspection.element_count }}</strong></div>
+    <div><span>Scope used</span><strong><code>{{ inspection.scope_selector or 'Whole page' }}</code></strong></div>
+    <div><span>Viewport</span><strong>{{ inspection.viewport.width }} × {{ inspection.viewport.height }}</strong></div>
+  </div>
+  {% if inspection.warnings %}<section class="warnings" aria-label="Scan warnings"><strong>Scan warnings</strong><ul>{% for warning in inspection.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></section>{% endif %}
+  <section class="surface rescan"><div><h3>Refine inspection scope</h3><p class="hint">Rescan the same URL with a CSS selector, or leave it blank to scan the whole page.</p></div>
+    <form action="/scan" method="post" class="rescan-form"><input type="hidden" name="url" value="{{ inspection.url }}"><label for="scope">CSS scope</label><input id="scope" name="scope" type="text" placeholder="e.g. form#login" value="{{ inspection.scope_selector or '' }}"><button type="submit" class="secondary">Rescan</button></form>
+  </section>
+  <section class="surface screenshot-section"><div class="section-heading"><div><h3>Page screenshot</h3><p class="hint">Select an element in the table or on the screenshot to highlight it.</p></div></div>
+    {% if screenshot_available %}
+    <div class="screenshot-scroll"><div id="screenshot-stage" class="screenshot-stage"><img id="inspection-screenshot" src="/inspections/{{ inspection.inspection_id }}/screenshot" alt="Screenshot of {{ inspection.title }}" data-fallback="Screenshot unavailable"><div id="screenshot-boxes" class="screenshot-boxes" aria-label="Element positions"></div></div></div>
+    {% else %}
+    <div class="empty-screenshot"><strong>No screenshot available</strong><p>This inspection has no saved screenshot. Elements and locators are still available below.</p></div>
+    {% endif %}
+  </section>
+  <section class="surface" id="elements-section">
+    <div class="section-heading"><div><h3>Interactive elements</h3><p class="hint">The best locator is the first unique candidate in the inspector's ranked list.</p></div><span id="visible-count" class="count">{{ inspection.element_count }} shown</span></div>
+    <div class="filters"><div><label for="element-type">Element type</label><select id="element-type"><option value="">All types</option>{% for tag in inspection.elements | map(attribute='tag') | unique | sort %}<option value="{{ tag }}">{{ tag }}</option>{% endfor %}</select></div>
+      <div class="search-field"><label for="element-search">Search elements</label><input id="element-search" type="search" placeholder="ID, text, label, attribute, locator…"></div>
+      <label class="check-option"><input id="hide-links" type="checkbox"> Hide links</label><label class="check-option"><input id="unique-only" type="checkbox"> Unique locators only</label></div>
+    <form method="post" id="selection-form" action="/inspections/{{ inspection.inspection_id }}/select">
+      <div class="table-scroll"><table class="elements-table"><thead><tr><th>Select</th><th>Element</th><th>Tag / role</th><th>Name / label</th><th>Key attributes</th><th>Best locator</th><th>Locator status</th><th>State</th></tr></thead>
+      <tbody>{% for element in inspection.elements %}
+      <tr class="element-row" id="row-{{ element.element_id }}" data-element-id="{{ element.element_id }}" data-tag="{{ element.tag }}" data-role="{{ element.role or '' }}" data-unique="{{ 'true' if element.best_locator else 'false' }}" data-box='{{ (element.bounding_box.model_dump() if element.bounding_box else none) | tojson }}' data-search="{{ ([element.element_id,element.tag,element.role or '',element.accessible_name or '',element.text or '',element.label or '',element.css_path or ''] + (element.attributes.values() | list) + (element.locators | map(attribute='value') | list)) | join(' ') | lower | e }}" tabindex="0">
+        <td><input type="checkbox" name="element_ids" value="{{ element.element_id }}" aria-label="Select {{ element.element_id }}" {% if selection and element.element_id in selection.element_ids %}checked{% endif %}></td>
+        <td><button type="button" class="element-target" data-target="{{ element.element_id }}">{{ element.element_id }}</button></td>
+        <td><code>{{ element.tag }}</code>{% if element.role %}<small>{{ element.role }}</small>{% endif %}</td>
+        <td><strong>{{ element.accessible_name or element.text or '—' }}</strong><small>Label: {{ element.label or '—' }}</small></td>
+        <td><div class="attributes">{% for key, value in element.attributes.items() %}<div><code>{{ key }}</code>: {{ value }}</div>{% else %}—{% endfor %}</div></td>
+        <td>{% if element.best_locator %}<code class="locator-value">{{ element.best_locator.value }}</code>{% else %}<span class="hint">No unique locator</span>{% endif %}</td>
+        <td>{% if element.best_locator %}<span class="status unique">Unique</span>{% else %}<span class="status ambiguous">Assistant will ask</span>{% endif %}</td>
+        <td><span class="state">{{ 'Visible' if element.visible else 'Hidden' }}</span><small>{{ 'Enabled' if element.enabled else 'Disabled' }}</small></td>
+      </tr>
+      <tr class="candidate-row" data-parent="{{ element.element_id }}"><td colspan="8"><details><summary>All locator candidates ({{ element.locators | length }})</summary>{% if element.locators %}<table class="candidates"><thead><tr><th>Strategy</th><th>Playwright locator</th><th>Matches</th><th>Result</th></tr></thead><tbody>{% for locator in element.locators %}<tr><td>{{ locator.strategy }}</td><td><code>{{ locator.value }}</code></td><td>{{ locator.match_count }}</td><td>{{ 'Unique' if locator.is_unique else 'Not unique' }}</td></tr>{% endfor %}</tbody></table>{% else %}<p>No locator candidates recorded.</p>{% endif %}</details></td></tr>
+      {% endfor %}</tbody></table></div>
+      <p id="no-filter-results" class="no-results" hidden>No elements match these filters.</p>
+      <div class="selection-area"><h3>Testing goal and selection</h3><p class="hint">Check at least one element and describe what you want to test (at least three words).</p>
+      <label for="goal">Your testing goal</label><textarea name="goal" id="goal" rows="3" placeholder="e.g. Verify that login rejects an incorrect password" required>{{ selection.goal if selection else '' }}</textarea>
+      <div class="selection-actions"><span id="selected-count" aria-live="polite">0 elements selected</span><button type="submit" id="save-selection">Save selection</button></div><div id="selection-feedback" class="form-feedback" role="alert"></div></div>
+    </form>
+    <div class="ask-area"><form method="post" action="/inspections/{{ inspection.inspection_id }}/ask"><button id="ask-model" type="submit" {% if not selection %}disabled{% endif %}>Ask model</button></form><p class="hint">Save your selection before asking. Model processing is connected by Task 7b.</p></div>
+  </section>
+  {% include '_model_panel.html' %}
+</main>
+{% endblock %}
