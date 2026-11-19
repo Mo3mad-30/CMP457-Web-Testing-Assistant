@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Findings — {{ inspection.title }}{% endblock %}
-{% block content %}
+{% block head %}
 <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+<script src="{{ url_for('static', path='/app.js') }}" defer></script>
+{% endblock %}
+{% block content %}
 <main class="findings" data-inspection-id="{{ inspection.inspection_id }}">
   <div class="page-heading">
     <div><p class="eyebrow">INSPECTION / {{ inspection.inspection_id }}</p><h2>{{ inspection.title or 'Untitled page' }}</h2>
@@ -56,5 +59,4 @@
   </section>
   {% include '_model_panel.html' %}
 </main>
-<script src="{{ url_for('static', path='/app.js') }}" defer></script>
 {% endblock %}
