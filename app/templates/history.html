@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}History · Testing Assistant{% endblock %}
+{% block content %}
+<h2>Scan history</h2>
+{% if inspections %}
+  <table>
+    <thead>
+      <tr><th>Scanned (UTC)</th><th>Page</th><th>Scope</th><th>Elements</th><th>Scan</th></tr>
+    </thead>
+    <tbody>
+      {% for insp in inspections %}
+      <tr>
+        <td>{{ insp.scanned_at[:19] | replace("T", " ") }}</td>
+        <td>
+          {{ insp.title }}<br>
+          <a class="muted" href="{{ insp.final_url }}" target="_blank" rel="noopener">{{ insp.final_url }}</a>
+        </td>
+        <td>{{ insp.scope_selector or "whole page" }}</td>
+        <td>{{ insp.element_count }}</td>
+        <td>
+          <a href="/inspections/{{ insp.inspection_id }}">Findings</a> ·
+          <a href="/inspections/{{ insp.inspection_id }}/screenshot" target="_blank">Screenshot</a><br>
+          <span class="muted">{{ insp.inspection_id }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>No scans yet. <a href="/">Scan a page</a> to start.</p>
+{% endif %}
+{% endblock %}
