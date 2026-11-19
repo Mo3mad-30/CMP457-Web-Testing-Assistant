@@ -91,7 +91,7 @@ record. Run `pytest` after every change.
 | Schema tests | Done | Mohammad | 4 passing |
 | Design doc first draft | Done | Mohammad | Google Doc is the main copy |
 | Task 1: Local test page | Done | Mohammad | 10 visible interactive elements + 1 hidden |
-| Task 2: Inspector | In progress | Person A (Mohammad) | Must finish before Task 4 |
+| Task 2: Inspector | Done | Person A (Mohammad) | `runner/inspect_page.py` + 14 tests (18 total passing); manual saucedemo run still to confirm |
 | Task 3: Storage | To do | Person A (Mohammad) | Can start now; push function stubs first (section 6) |
 | Task 4: Runner client + scan pages | To do | Person A (Mohammad) | After Tasks 2 + 3 |
 | Task 5: Findings page | To do | Person B | Can start now against the sample JSON |
@@ -105,7 +105,7 @@ record. Run `pytest` after every change.
 
 | Person | Tasks | Files they own |
 |---|---|---|
-| A (Mohammad) | 2 Inspector (in progress), 3 Storage, 4 Runner client + scan pages | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
+| A (Mohammad) | 2 Inspector (done), 3 Storage, 4 Runner client + scan pages | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
 | B | 5 Findings page | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
 | C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
 
@@ -116,13 +116,13 @@ Shared file: `app/main.py`. Each person adds **only their own routes** (section 
 | Task | Needs first | Start now? |
 |---|---|---|
 | 3. Storage | Schema (done) | Yes |
-| 4. Runner client + scan pages | Task 2 + Task 3 | After 2 and 3 |
+| 4. Runner client + scan pages | Task 2 (done) + Task 3 | After 3 |
 | 5. Findings page | Real data from Task 4 later; built against the sample now | Yes |
 | 6. Model client | Task 3's `log_model_call` (faked in tests until Task 3 lands) | Yes |
 | 7a. Prompt + validation | Schema + sample | Yes |
 | 7b. "Ask model" wiring | Tasks 3, 5, 6 | Last |
 
-**Start right away:** Tasks 3, 5, 6, 7a (plus Task 2, already under way).
+**Start right away:** Tasks 3, 5, 6, 7a.
 **Critical path:** 3 → 4 → 5 on real data → 7b.
 
 ---
@@ -289,7 +289,7 @@ Rescan = a form on the findings page posting to `POST /scan` with the same `url`
 
 ## 7. Remaining tasks
 
-### Task 2: Inspector, Person A (Working page inspection, 3 pts)
+### Task 2: Inspector, Person A (Working page inspection, 3 pts) (Done)
 **Target:** a standalone process that opens a **visible** browser, reads the page, and writes one
 inspection file that matches the data contract.
 **Must do:**
@@ -306,6 +306,7 @@ inspection file that matches the data contract.
 **Done when:** tests against the local test page pass (labels found, duplicate links non-unique,
 disabled and hidden handled, scope works, 10 visible elements + 1 hidden warning), and a manual
 saucedemo scan opens a visible browser and writes a valid file.
+**Result:** built in seven parts (command line and host checks; page loading with navigation allowlist; in-browser element collection; role and accessible name; ranked locator candidates counted on the live page; building the Inspection, screenshot, hold time and exit codes; tests). On the test page it finds exactly 10 visible elements, the hidden one as a warning, both "Help" links as non-unique (count 2, best locator falls back to `#id`), no role for the password field and the disabled button as `enabled: false`. Extra warnings it can report: blocked navigations, page never went network-idle, HTTP error status, scope matched nothing, iframes not inspected.
 
 ### Task 3: Storage, Person A
 **Target:** keep every scan, selection and model call, so later steps use what was really observed
@@ -419,3 +420,5 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 | 2026-11-18 | Google Doc synced: fallback settings in the model table, runner blocks only navigations to other hosts, browser hold time, fallback fields in the storage table |
 | 2026-11-19 | Task dependencies mapped; Task 7 split into 7a (prompt + validation) and 7b (wiring); three-person split in three stages |
 | 2026-11-19 | Owners set: A = Tasks 2–4, B = Task 5, C = Tasks 6–7; Tasks 8–9 deferred; added section 6, Shared names (files, settings, IDs, functions, routes, template variables) |
+| 2026-11-19 | Design doc: added why the runner is a separate process (untrusted pages and generated code, failure containment, brief requirement, one job interface) and why a process rather than a container in Phase 1 |
+| 2026-11-19 | Task 2 done: inspector with measured locators, exact-match names, navigation allowlist, warnings and exit codes; 18 tests passing; design doc inspection section updated |
