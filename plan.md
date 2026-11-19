@@ -50,6 +50,7 @@ sample inspection output · model usage/timing evidence.
 | 1 | Language | Python everywhere: FastAPI, Playwright for Python, pytest | Team already used Playwright + pytest in labs |
 | 2 | Runner isolation | Separate process launched per job (container option documented for Phase 2) | Brief allows "process or container"; fastest; visible browser is easy |
 | 3 | Model | Groq free tier, `openai/gpt-oss-120b` primary; Gemini Flash (free tier) backup; no local models | Local 7B models too weak for code/JSON and need a GPU; Groq is fast and free |
+| 3a | Model client transport | Providers called directly with **`httpx`** (Groq's OpenAI-compatible endpoint; Gemini's own API), not the OpenAI library. Fallback model id **`gemini-3.5-flash`** | Works, well tested, reports Gemini's thinking tokens; decided 2026-11-20 |
 | 3b | Call routing | Main model + **automatic fallback**: Groq → retry once → Gemini with the same prompt; always shown in the UI and logged. Manual model switch in the UI **on hold** | Demo never breaks on a rate limit; one answer per call; transparent |
 | 4 | Frontend | Jinja2 HTML templates + a little vanilla JS | No build step, fastest |
 | 5 | Storage | SQLite + one folder per scan; scans never overwritten | Zero setup; brief requires retained results |
@@ -57,6 +58,8 @@ sample inspection output · model usage/timing evidence.
 | 7 | UI placement | Separate control-panel tab; no overlay, no extension | Keeps our app and the site under test apart |
 | 8 | Practice targets | saucedemo.com, the-internet.herokuapp.com, plus our own local test page | Until the instructor's site arrives |
 | 9 | Schema | One shared data contract (`shared/schemas.py`) for inspection, selection, model output and usage log; tests keep the sample in sync | Lets the three of us work in parallel |
+| 10 | Grounding rule | A model answer must cite **at least one** element id, and every cited id must exist in the scan; otherwise it is rejected (if Task 7a's branch lacks this, add it during the 7b review) | An answer that cites nothing cannot be checked against the scan |
+| 11 | Keys | Each team member keeps their **own `.env`** with their own keys (copied from `.env.example`, never committed). New settings are added to `.env.example` with an empty value | Separate free-tier limits per person; no shared secrets |
 
 Rejected and why: sending every call to both models, or a second model judging the first (double the
 calls; deterministic validation already checks); local Ollama (weak, GPU-bound); React (build step,
@@ -94,9 +97,9 @@ record. Run `pytest` after every change.
 | Task 2: Inspector | Done | Person A (Mohammad) | `runner/inspect_page.py` + 14 tests (18 total passing); manual saucedemo run still to confirm |
 | Task 3: Storage | Done | Person A (Mohammad) | `app/db.py` + 11 tests (29 total passing); tables created at app startup |
 | Task 4: Runner client + scan pages | Done | Person A (Mohammad) | `app/runner_client.py`, scan/history/screenshot routes, `index.html`, `history.html`; 48 tests passing |
-| Task 5: Findings page | To do | Person B | Can start now against the sample JSON |
-| Task 6: Model client with fallback | To do | Person C | Can start now; storage logging faked |
-| Task 7a: Prompt + validation | To do | Person C | Can start now (schema + sample only) |
+| Task 5: Findings page | Done | Person B | Reviewed, 2 small integration fixes + 8 tests added; merged to `main` (PR #1) |
+| Task 6: Model client with fallback | In review | Person C | Branch `task-6-model-client`: logic and 33 tests pass; uses `httpx` (decision pending); no live call verified yet (no key) |
+| Task 7a: Prompt + validation | In review | Person C | Branch `task-7a-prompt-validation`: 19 tests pass; needs fixes `16bdfa7` (role/tag injection) and `00d405e` (no cited ids = error) |
 | Task 7b: "Ask model" wiring | To do | Person C | After Tasks 3, 5, 6 |
 | Task 8: Evidence package + README | Later | | Assigned after Tasks 3–7 |
 | Task 9: Final rubric review | Later | | Assigned after Task 8 |
@@ -106,7 +109,7 @@ record. Run `pytest` after every change.
 | Person | Tasks | Files they own |
 |---|---|---|
 | A (Mohammad) | 2 Inspector (done), 3 Storage (done), 4 Runner client + scan pages (done) | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
-| B | 5 Findings page | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
+| B | 5 Findings page (done) | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
 | C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
 
 Shared file: `app/main.py`. Each person adds **only their own routes** (section 6.6).
@@ -117,13 +120,13 @@ Shared file: `app/main.py`. Each person adds **only their own routes** (section 
 |---|---|---|
 | 3. Storage | Schema (done) | Done |
 | 4. Runner client + scan pages | Tasks 2 + 3 | Done |
-| 5. Findings page | Real scans now available from Task 4 | Yes |
+| 5. Findings page | Task 4 | Done |
 | 6. Model client | Task 3's `log_model_call` (done; still faked in unit tests) | Yes |
 | 7a. Prompt + validation | Schema + sample | Yes |
 | 7b. "Ask model" wiring | Tasks 3, 5, 6 | Last |
 
-**Start right away:** Tasks 5, 6, 7a. Person A's tasks (2–4) are done.
-**Critical path:** 5 on real data → 7b.
+**Start right away:** Tasks 6 and 7a. Tasks 1–5 are done and merged into `main` (59 tests passing).
+**Critical path:** 6 → 7b (the "Ask model" step). Then Tasks 8–9.
 
 ---
 
@@ -250,9 +253,9 @@ Table names: `inspections`, `elements`, `selections`, `model_calls`, `artifacts`
 | `POST /scan` | `url`, `scope` (optional) | Runs the inspector → redirect `303` to `/inspections/{inspection_id}`; on `RunnerError` re-renders `index.html` with `error` | A |
 | `GET /history` | | `history.html` (all scans) | A |
 | `GET /inspections/{inspection_id}/screenshot` | | Screenshot file (only from `data/jobs/`) | A |
-| `GET /inspections/{inspection_id}` | | `findings.html`; `sample` loads the sample JSON until Task 3 lands | B |
+| `GET /inspections/{inspection_id}` | | `findings.html`; `sample` loads the sample JSON; unknown id → 404 (JSON) | B |
 | `POST /inspections/{inspection_id}/select` | `element_ids` (repeated), `goal` | Saves a `Selection` → re-renders `findings.html` with `message` | B |
-| `POST /inspections/{inspection_id}/ask` | | Runs `assistant.summarize_selection` → re-renders `findings.html` with `ask` | C |
+| `POST /inspections/{inspection_id}/ask` | (none) | Runs `assistant.summarize_selection` → re-renders `findings.html` with `ask`. Build the context with B's `_findings_context(inspection, selection)` helper in `app/main.py`, then set `ctx["ask"] = ask` (the helper always sets `ask = None`) | C |
 
 Rescan = a form on the findings page posting to `POST /scan` with the same `url` and a new `scope`.
 
@@ -283,8 +286,12 @@ Rescan = a form on the findings page posting to `POST /scan` with the same `url`
 | `error` | `str` or `None` | Error note shown at the top |
 | `model` | `str` | `"<provider> / <model>"` label used by `base.html` |
 
-`_model_panel.html` is included by `findings.html` and reads only `ask`. B builds its layout from the
-`AskResult` fields; C fills them.
+`findings.html` also receives `screenshot_available` (bool). `_model_panel.html` is included by
+`findings.html` and reads only `ask`; it shows a placeholder when `ask` is `None`. The panel shows tokens,
+latency and status from the **last** entry in `result.attempts`, lists every non-`ok` attempt as a
+collapsed "failed attempts" list, uses `is_fallback` / `fallback_reason` for the fallback note, and
+turns `referenced_element_ids` into buttons that jump to the table row. The Ask button is a form posting
+to `POST /inspections/{id}/ask` with no fields, disabled until a selection is saved.
 
 `index.html`: `model`, `error`, and on a failed scan also `url`, `scope` (so the form keeps the tester's input). `history.html`: `model`, `inspections` (from `db.list_inspections()`). `base.html` has the header with Scan and History links and the model label; pages add their own CSS or scripts in the `head` block.
 
@@ -330,7 +337,7 @@ saves the result; the routes `POST /scan`, `GET /history`, screenshot route (6.6
 a second scan creates a new record and keeps the old one.
 **Result:** built in four parts (runner client; scan, history and screenshot routes; scan form and history pages with navigation; tests). The runner client accepts only http(s) URLs and local test pages from `tests/fixtures/`, passes the runner only a short list of safe environment variables (never API keys), stops it after page-load limit + hold time + 15 s, and turns failures into one-line messages on the scan form (a blocked host says to add it to `ALLOWED_HOSTS`). The screenshot route serves files only from `data/jobs/`. Tests share a `tests/conftest.py` fixture (`isolated_settings`) that gives each test its own data folder and database. After a scan the app redirects to `/inspections/{id}`, which is Person B's findings page (404 until Task 5 lands).
 
-### Task 5: Findings page, Person B (Basic human interaction, 2 pts)
+### Task 5: Findings page, Person B (Basic human interaction, 2 pts) (Done)
 **Target:** show the findings linked to their source page and let the tester select elements, refine
 the scope and state a goal.
 **Start with:** `GET /inspections/sample` rendering the sample JSON (6.5, 6.6). The sample has no
@@ -349,6 +356,24 @@ screenshot file, so the page must handle a missing screenshot.
 - On hold: a manual model dropdown.
 **Done when:** on the sample (and later on real scans) a tester can filter, select 2–3 elements,
 write a goal and save it; the panel renders a test `AskResult`.
+
+**Result:** reviewed against this plan and merged into `main` (PR #2 for Tasks 2–4, then PR #1 for
+Task 5; 59 tests passing on `main`; real end-to-end run passed: local test page, filters, row/box
+highlighting, selection save and refusals, rescan with scope, saucedemo, blocked host, sample page).
+Integration fixes: CSS/JS moved into `base.html`'s `head` block; `/select` turns a storage `ValueError`
+into a 400 message. Added `tests/test_findings_routes.py` (8 tests, incl. HTML escaping of scanned text).
+Additions beyond the plan: viewport in the header; one "Assistant will ask" badge; browser-side checks that
+mirror the server's (no element, goal under 3 words, id not in this scan); selections on the `sample` scan
+are kept in memory only.
+
+**Follow-ups (small, not blocking Phase 1):**
+- [ ] Test with an element that has no unique locator, so the red "Assistant will ask" badge is covered.
+- [ ] Unknown inspection id returns JSON 404; an HTML "scan not found" page would be friendlier.
+- [ ] `app/main.py` tidy-up: B's imports mid-file, `Form`/`HTTPException` imported twice, `db` imported
+  inside functions, sample id `"insp-0001"` hard-coded in `_findings_context`.
+- [ ] Type filter covers tags only, not roles; History link appears twice on the findings page.
+- [ ] Add `test-artifacts/` to `.gitignore`.
+- [ ] Decide whether "Ask model" supports the `sample` scan (it is not in the database).
 
 ### Task 6: Model client with automatic fallback, Person C (Feasibility evidence, 1 pt)
 **Target:** one place that makes every model call, records real tokens and latency, and falls back to
@@ -407,7 +432,6 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 
 - Phase 1 exact deadline date (Week 9).
 - Names for Person B and Person C.
-- Current free-tier Gemini Flash model id (check in Google AI Studio).
 
 ---
 
@@ -430,3 +454,7 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 | 2026-11-19 | Task 3 done: SQLite storage (append-only scans, selections, every model-call attempt, CSV export), tables created at startup; 29 tests passing; design doc storage section updated |
 | 2026-11-19 | Fix: added httpx to requirements.txt (needed by FastAPI TestClient in test_db.py) |
 | 2026-11-20 | Task 4 done: runner client (URL rules, minimal environment, time limit, one-line errors), scan/history/screenshot routes and pages; Person A's tasks complete; 48 tests passing; design doc runner section updated |
+| 2026-11-20 | Task 5 reviewed and merged: PR #2 (Tasks 2–4) then PR #1 (Task 5) into `main`; 2 integration fixes, 8 findings-page tests added; 59 tests passing; real end-to-end run passed; design doc gained a "Findings page and tester interaction" section and an updated scope-and-goal gate |
+| 2026-11-20 | Tasks 6 and 7a reviewed (not merged): both pass with `main` (112 tests with fixes); injection fix and empty-citation fix proposed; open decisions: httpx vs OpenAI library, how `invalid_output` is recorded, failure-reason message, Gemini model id; live call still to verify |
+| 2026-11-20 | Decisions: httpx accepted for the model client; fallback model gemini-3.5-flash; at least one cited element required for grounding; one .env per person. Deferred to the 7b review: failure-reason message, temperature/retry waits/cleanup, how invalid_output is recorded |
+| 2026-11-20 | Agreed (on hold until the 7b review): record a failed validation as one extra `model_calls` row with status `invalid_output` (same provider/model, rejected answer as response text, no tokens, latency 0); apply in the combined fix round only if 7b does not already handle it |

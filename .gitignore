@@ -20,3 +20,4 @@ playwright-report/
 .vscode/
 .idea/
 .DS_Store
+test-artifacts/
