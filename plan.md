@@ -1,0 +1,421 @@
+# Team plan: Human-in-the-Loop Web Testing Assistant
+
+Course: Generative AI for Software Testing, Fall 2026 · Team of 3
+Phase 1 (Architecture and guided inspection): due Week 9, 10 pts
+Phase 2 (Complete supervised workflow): due Week 13, 20 pts
+
+This is the team's overall plan: what we are building, what we decided, what is done, and what each
+remaining task must achieve. Technical design details live in the design document, the **Google Doc**
+"Human-in-the-Loop Web Testing Assistant — Design Document" (the main copy; the earlier Claude doc is
+an old draft). Both are updated after every important decision or step.
+
+---
+
+## 1. What we are building
+
+A web app that helps a **human tester** inspect a web page, design test cases, generate Playwright
+tests, run approved tests, and repair them after the page changes. The tester approves every
+consequential step; the assistant asks instead of guessing when evidence is missing. Extra autonomy
+earns no marks; grounded, reviewable behavior does.
+
+How it looks to the tester: our app runs at `127.0.0.1:8000` in their normal browser (the control
+panel). When they click Scan, a **separate Chromium window** opens, loads the target site, gets
+inspected, stays open a few seconds, and closes. Results appear back in our app's tab. Nothing is
+drawn on top of the site under test.
+
+Guiding principle: **deterministic components produce facts** (inspector, locator counts, storage,
+runner, later the diff engine); **the model produces suggestions** (summaries, test cases, code,
+repairs); every suggestion is checked against the facts before the tester sees it.
+
+---
+
+## 2. Phase 1 rubric and where each point comes from
+
+| Component | Pts | What graders want | Built by |
+|---|---|---|---|
+| Architecture and system design | 4 | Component diagram, data flow (UI, model, storage, isolated runner), approval points, validation, how later phases use inspection results | Design doc + schema contract + app/runner split |
+| Working page inspection | 3 | URL → visible browser → interactive elements, labels/attributes, candidate locators → structured findings linked to the source page | Tasks 1, 2, 4, 5 |
+| Basic human interaction | 2 | Testing goal + element selection or scope refinement in the UI | Task 5 (+ `Selection` in the schema) |
+| Feasibility evidence | 1 | A meaningful model call using inspection data; model/version, setup, tokens, response time recorded | Tasks 6, 7, 8 |
+
+**Submission:** design doc · runnable code + setup + model config (no secrets) · short demo ·
+sample inspection output · model usage/timing evidence.
+
+---
+
+## 3. Decisions
+
+| # | Topic | Decision | Why |
+|---|---|---|---|
+| 1 | Language | Python everywhere: FastAPI, Playwright for Python, pytest | Team already used Playwright + pytest in labs |
+| 2 | Runner isolation | Separate process launched per job (container option documented for Phase 2) | Brief allows "process or container"; fastest; visible browser is easy |
+| 3 | Model | Groq free tier, `openai/gpt-oss-120b` primary; Gemini Flash (free tier) backup; no local models | Local 7B models too weak for code/JSON and need a GPU; Groq is fast and free |
+| 3b | Call routing | Main model + **automatic fallback**: Groq → retry once → Gemini with the same prompt; always shown in the UI and logged. Manual model switch in the UI **on hold** | Demo never breaks on a rate limit; one answer per call; transparent |
+| 4 | Frontend | Jinja2 HTML templates + a little vanilla JS | No build step, fastest |
+| 5 | Storage | SQLite + one folder per scan; scans never overwritten | Zero setup; brief requires retained results |
+| 6 | Browser window | Runner's own headed Chromium, kept open a few seconds after the scan (configurable) | Visible browser required; clear in the demo |
+| 7 | UI placement | Separate control-panel tab; no overlay, no extension | Keeps our app and the site under test apart |
+| 8 | Practice targets | saucedemo.com, the-internet.herokuapp.com, plus our own local test page | Until the instructor's site arrives |
+| 9 | Schema | One shared data contract (`shared/schemas.py`) for inspection, selection, model output and usage log; tests keep the sample in sync | Lets the three of us work in parallel |
+
+Rejected and why: sending every call to both models, or a second model judging the first (double the
+calls; deterministic validation already checks); local Ollama (weak, GPU-bound); React (build step,
+slower).
+
+Model limits to respect (Groq free tier, `gpt-oss-120b`, published): 30 requests/min, 1,000/day,
+8,000 tokens/min, 200,000 tokens/day. ⇒ prompts carry only the selected elements, never the whole page.
+
+---
+
+## 4. Project structure
+
+    app/        web app: routes, pages, config, storage, runner client, model client, prompts, validation
+    runner/     separate browser process: page inspection (Phase 2: test execution)
+    shared/     data contract used by both app and runner
+    data/       runtime only (database, scan folders, screenshots), not committed
+    docs/       sample inspection output, model usage evidence, demo script
+    tests/      our tests + a local test page
+
+Rules: `runner/` never imports from `app/`. API keys only in `.env` (git-ignored). Every scan is a new
+record. Run `pytest` after every change.
+
+---
+
+## 5. Progress and team split
+
+| Step | Status | Owner | Notes |
+|---|---|---|---|
+| Skeleton (folders, config, home page, health check, README) | Done | Mohammad | Runs; `/health` shows the configured model |
+| Data contract (`shared/schemas.py`) | Done | Mohammad | Inspection, Element, Locator, Selection, ModelSuggestion, ModelCallRecord (with fallback fields) |
+| Sample inspection (`docs/sample_inspection.json`) | Done | Mohammad | Handwritten saucedemo login; replaced by a real scan later |
+| Schema tests | Done | Mohammad | 4 passing |
+| Design doc first draft | Done | Mohammad | Google Doc is the main copy |
+| Task 1: Local test page | Done | Mohammad | 10 visible interactive elements + 1 hidden |
+| Task 2: Inspector | In progress | Person A (Mohammad) | Must finish before Task 4 |
+| Task 3: Storage | To do | Person A (Mohammad) | Can start now; push function stubs first (section 6) |
+| Task 4: Runner client + scan pages | To do | Person A (Mohammad) | After Tasks 2 + 3 |
+| Task 5: Findings page | To do | Person B | Can start now against the sample JSON |
+| Task 6: Model client with fallback | To do | Person C | Can start now; storage logging faked |
+| Task 7a: Prompt + validation | To do | Person C | Can start now (schema + sample only) |
+| Task 7b: "Ask model" wiring | To do | Person C | After Tasks 3, 5, 6 |
+| Task 8: Evidence package + README | Later | | Assigned after Tasks 3–7 |
+| Task 9: Final rubric review | Later | | Assigned after Task 8 |
+
+### Who does what
+
+| Person | Tasks | Files they own |
+|---|---|---|
+| A (Mohammad) | 2 Inspector (in progress), 3 Storage, 4 Runner client + scan pages | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
+| B | 5 Findings page | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
+| C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
+
+Shared file: `app/main.py`. Each person adds **only their own routes** (section 6.6).
+
+### Dependencies
+
+| Task | Needs first | Start now? |
+|---|---|---|
+| 3. Storage | Schema (done) | Yes |
+| 4. Runner client + scan pages | Task 2 + Task 3 | After 2 and 3 |
+| 5. Findings page | Real data from Task 4 later; built against the sample now | Yes |
+| 6. Model client | Task 3's `log_model_call` (faked in tests until Task 3 lands) | Yes |
+| 7a. Prompt + validation | Schema + sample | Yes |
+| 7b. "Ask model" wiring | Tasks 3, 5, 6 | Last |
+
+**Start right away:** Tasks 3, 5, 6, 7a (plus Task 2, already under way).
+**Critical path:** 3 → 4 → 5 on real data → 7b.
+
+---
+
+## 6. Shared names (use these exactly)
+
+Everything below is used by more than one person. Use these names from day one, even before the code
+behind them exists; a stub with the right name and signature is better than waiting. Changing anything
+here needs agreement from all three of us and an update to this section.
+
+### 6.1 Files and folders
+
+| Path | Owner | Purpose |
+|---|---|---|
+| `shared/schemas.py` | all (agree first) | Data contract (6.3) |
+| `docs/sample_inspection.json` | all | Sample `Inspection`; what B and C build against now |
+| `tests/fixtures/login.html` | A | Local test page |
+| `runner/inspect_page.py` | A | Inspector process (6.4) |
+| `app/config.py` | all (agree first) | Settings (6.2) |
+| `app/db.py` | A | Storage (6.5) |
+| `app/runner_client.py` | A | Starts the runner, saves results (6.5) |
+| `app/main.py` | shared | Routes (6.6) |
+| `app/model_client.py` | C | Model calls + fallback (6.7) |
+| `app/prompts.py` | C | Prompt building (6.7) |
+| `app/validation.py` | C | Checks model output (6.7) |
+| `app/assistant.py` | C | Ties prompt, model and validation together (6.7) |
+| `app/templates/index.html`, `history.html` | A | Scan form, scan list |
+| `app/templates/findings.html`, `_model_panel.html` | B | Findings page, model panel (6.8) |
+| `app/static/app.js`, `app.css` | B | Page behavior and style |
+| `data/app.db` | runtime | SQLite database |
+| `data/jobs/<inspection_id>/inspection.json` | runtime | Scan result |
+| `data/jobs/<inspection_id>/screenshot.png` | runtime | Full-page screenshot |
+| `data/jobs/<inspection_id>/error.json` | runtime | Written instead of `inspection.json` when a scan fails: `{"error": "<message>"}` |
+
+### 6.2 Settings (`app/config.py` → `settings.<name>`, `.env` key in brackets)
+
+| Setting | `.env` key | Default |
+|---|---|---|
+| `model_provider` | `MODEL_PROVIDER` | `groq` |
+| `model_name` | `MODEL_NAME` | `openai/gpt-oss-120b` |
+| `fallback_provider` | `FALLBACK_PROVIDER` | `""` (no fallback) |
+| `fallback_model_name` | `FALLBACK_MODEL_NAME` | `""` |
+| `groq_api_key` | `GROQ_API_KEY` | `""` |
+| `gemini_api_key` | `GEMINI_API_KEY` | `""` |
+| `allowed_hosts` | `ALLOWED_HOSTS` (comma-separated) | `[]` = host of the scanned URL only |
+| `runner_timeout` | `RUNNER_TIMEOUT` (seconds) | `60` |
+| `headless` | `HEADLESS` | `false` |
+| `browser_hold_seconds` | `BROWSER_HOLD_SECONDS` | `3` |
+| `data_dir` | `DATA_DIR` | `data` |
+| `db_path` | `DB_PATH` | `data/app.db` |
+
+Provider names are exactly `groq` and `gemini`.
+
+### 6.3 Data contract (`shared/schemas.py`)
+
+Classes: `Locator`, `BoundingBox`, `Element`, `Inspection`, `Selection`, `ModelSuggestion`,
+`ModelCallRecord`. Field names are as defined in the file; key ones:
+
+- `Inspection`: `inspection_id`, `url`, `final_url`, `title`, `scanned_at`, `viewport`,
+  `scope_selector`, `screenshot_path`, `elements`, `warnings`, `element_count` (computed),
+  `get_element(element_id)`
+- `Element`: `element_id`, `tag`, `role`, `accessible_name`, `text`, `label`, `attributes`,
+  `css_path`, `visible`, `enabled`, `bounding_box`, `locators`, `best_locator` (computed)
+- `Locator`: `strategy`, `value`, `match_count`, `is_unique` (computed)
+- `Selection`: `inspection_id`, `element_ids`, `goal`, `created_at`
+- `ModelSuggestion`: `summary`, `referenced_element_ids`, `suggested_next_action`, `clarifying_questions`
+- `ModelCallRecord`: `provider`, `model`, `purpose`, `inspection_id`, `prompt_tokens`,
+  `completion_tokens`, `latency_ms`, `status`, `is_fallback`, `fallback_reason`, `created_at`
+
+Fixed values:
+- Locator `strategy`: `role`, `label`, `placeholder`, `test_id`, `text`, `id`, `css` (ranked in this order)
+- `ModelCallRecord.status`: `ok`, `invalid_output`, `rate_limited`, `error`
+- `ModelCallRecord.purpose` (Phase 1): `summarize_selection`
+- `fallback_reason` format: `"<provider> <status> after retry"`, e.g. `"groq rate_limited after retry"`
+
+### 6.4 IDs and formats
+
+| Thing | Format | Example |
+|---|---|---|
+| Inspection id | `insp-YYYYMMDD-HHMMSS-xxxx` (4 hex) | `insp-20261119-141502-a3f9` |
+| Element id | `el-` + 3 digits, in page order | `el-001` |
+| Timestamps | UTC, ISO 8601 | `2026-11-19T12:15:02Z` |
+| Locator `value` | A Playwright Python call on `page`, ready to paste into Phase 2 code | `get_by_role("button", name="Log in", exact=True)` |
+| Screenshot path in JSON | Relative to the project root | `data/jobs/insp-…/screenshot.png` |
+
+**Inspector command line (A's runner, called by A's runner client):**
+`python -m runner.inspect_page --url URL --out DIR [--inspection-id ID] [--scope CSS] [--allowed-hosts h1,h2] [--timeout SECONDS] [--hold-seconds N] [--headless] [--include-hidden]`
+Exit codes: `0` success (`inspection.json` written), `1` failure (`error.json` written),
+`2` host not allowed (`error.json` written).
+
+### 6.5 Storage and runner client functions (A)
+
+All `db` functions take an optional `db_path` as the last argument (tests use a temp file).
+
+| Function | Returns | Used by |
+|---|---|---|
+| `db.init_db()` | None | `main.py` at startup |
+| `db.save_inspection(inspection: Inspection, json_path: Path)` | None; raises `ValueError` if the id already exists | runner client |
+| `db.get_inspection(inspection_id: str)` | `Inspection` or `None` | B, C |
+| `db.list_inspections()` | `list[dict]`, newest first, keys: `inspection_id`, `url`, `title`, `scanned_at`, `element_count` | A (history page) |
+| `db.save_selection(selection: Selection)` | `int` (row id) | B |
+| `db.get_latest_selection(inspection_id: str)` | `Selection` or `None` | B, C |
+| `db.log_model_call(record: ModelCallRecord, response_text: str | None = None)` | `int` (row id) | C |
+| `db.list_model_calls(limit: int = 100)` | `list[dict]`, newest first | usage page (later) |
+| `db.export_model_calls_csv(path: Path)` | `Path` | evidence (later) |
+| `runner_client.RunnerError` | exception class | A's `/scan` route |
+| `runner_client.new_inspection_id()` | `str` | runner client |
+| `runner_client.run_inspection(url: str, scope: str | None = None)` | `Inspection` (already saved); raises `RunnerError` | A's `/scan` route |
+
+Table names: `inspections`, `elements`, `selections`, `model_calls`, `artifacts` (Phase 2, empty).
+
+**Until Task 3 lands:** B loads the sample with
+`Inspection.model_validate_json(Path("docs/sample_inspection.json").read_text())` when the id is
+`sample`; C replaces `db.log_model_call` with a fake in tests (pytest `monkeypatch`).
+
+### 6.6 Routes (`app/main.py`)
+
+| Method + path | Form fields | Renders / does | Owner |
+|---|---|---|---|
+| `GET /` | | `index.html` (scan form, last error) | exists |
+| `GET /health` | | JSON config check | exists |
+| `POST /scan` | `url`, `scope` (optional) | Runs the inspector → redirect `303` to `/inspections/{inspection_id}`; on `RunnerError` re-renders `index.html` with `error` | A |
+| `GET /history` | | `history.html` (all scans) | A |
+| `GET /inspections/{inspection_id}/screenshot` | | Screenshot file (only from `data/jobs/`) | A |
+| `GET /inspections/{inspection_id}` | | `findings.html`; `sample` loads the sample JSON until Task 3 lands | B |
+| `POST /inspections/{inspection_id}/select` | `element_ids` (repeated), `goal` | Saves a `Selection` → re-renders `findings.html` with `message` | B |
+| `POST /inspections/{inspection_id}/ask` | | Runs `assistant.summarize_selection` → re-renders `findings.html` with `ask` | C |
+
+Rescan = a form on the findings page posting to `POST /scan` with the same `url` and a new `scope`.
+
+### 6.7 Model, prompt and validation functions (C)
+
+| Function / class | Signature / fields | Used by |
+|---|---|---|
+| `model_client.ModelResult` | `text: str | None`, `provider: str`, `model: str`, `is_fallback: bool`, `fallback_reason: str | None`, `attempts: list[ModelCallRecord]` | C, B (panel) |
+| `model_client.call_model` | `(messages: list[dict], purpose: str, inspection_id: str | None = None, json_mode: bool = True) -> ModelResult` | C |
+| `prompts.PAGE_DATA_OPEN` / `PAGE_DATA_CLOSE` | `"<page_data>"` / `"</page_data>"` | C (tests) |
+| `prompts.compact_element` | `(element: Element) -> dict` | C |
+| `prompts.build_summary_messages` | `(inspection: Inspection, selection: Selection) -> list[dict]` | C |
+| `validation.ValidationResult` | `suggestion: ModelSuggestion | None`, `errors: list[str]`, `warnings: list[str]` | C |
+| `validation.validate_suggestion` | `(raw_text: str, inspection: Inspection, selection: Selection) -> ValidationResult` | C |
+| `assistant.AskResult` | `suggestion: ModelSuggestion | None`, `errors: list[str]`, `warnings: list[str]`, `result: ModelResult | None` | C, B (panel) |
+| `assistant.summarize_selection` | `(inspection_id: str) -> AskResult` | C's `/ask` route |
+
+### 6.8 Template variables
+
+`findings.html` always receives:
+
+| Variable | Type | Meaning |
+|---|---|---|
+| `inspection` | `Inspection` | The scan being shown |
+| `selection` | `Selection` or `None` | Latest saved selection for this scan |
+| `ask` | `AskResult` or `None` | Model answer, only after "Ask model" |
+| `message` | `str` or `None` | Success note, e.g. "Selection saved" |
+| `error` | `str` or `None` | Error note shown at the top |
+| `model` | `str` | `"<provider> / <model>"` label used by `base.html` |
+
+`_model_panel.html` is included by `findings.html` and reads only `ask`. B builds its layout from the
+`AskResult` fields; C fills them.
+
+`index.html`: `model`, `error`. `history.html`: `model`, `inspections` (from `db.list_inspections()`).
+
+---
+
+## 7. Remaining tasks
+
+### Task 2: Inspector, Person A (Working page inspection, 3 pts)
+**Target:** a standalone process that opens a **visible** browser, reads the page, and writes one
+inspection file that matches the data contract.
+**Must do:**
+- Accept the command-line options in 6.4.
+- Refuse hosts outside the allowlist; block navigation away from allowed hosts while the page loads.
+- Collect interactive elements (links, buttons, inputs, selects, textareas, elements with button/link
+  roles), each with tag, visible text, label, key attributes, role, accessible name, visible/enabled
+  state, position on the screenshot, and a short CSS path.
+- Generate locator candidates in the ranked order (6.3). **Count every candidate on the live page**;
+  drop ones that match nothing, keep non-unique ones as evidence.
+- Skip hidden elements by default (with a warning), warn about iframes, take a full-page screenshot,
+  keep the browser open for the hold time, then close.
+- On failure, write `error.json` and exit with the codes in 6.4.
+**Done when:** tests against the local test page pass (labels found, duplicate links non-unique,
+disabled and hidden handled, scope works, 10 visible elements + 1 hidden warning), and a manual
+saucedemo scan opens a visible browser and writes a valid file.
+
+### Task 3: Storage, Person A
+**Target:** keep every scan, selection and model call, so later steps use what was really observed
+and usage can be exported as evidence.
+**Must do:** the functions and tables in 6.5; saving the same scan twice is refused; every model-call
+attempt is stored, including fallbacks. **Push stubs with the 6.5 names first** so B and C can import them.
+**Done when:** the sample scan round-trips through the database, selections save and load, and a test
+CSV export works.
+
+### Task 4: Runner client + scan pages, Person A
+**Target:** connect the app to the inspector through the process boundary, with a time limit and
+**no API keys** passed to the runner.
+**Must do:** `run_inspection` (6.5) starts the runner with a minimal environment and a timeout, then
+saves the result; the routes `POST /scan`, `GET /history`, screenshot route (6.6); the scan form shows
+"a browser window will open"; a clear error when the runner fails or times out.
+**Done when:** scanning saucedemo from the UI opens the visible browser, then shows the findings page;
+a second scan creates a new record and keeps the old one.
+
+### Task 5: Findings page, Person B (Basic human interaction, 2 pts)
+**Target:** show the findings linked to their source page and let the tester select elements, refine
+the scope and state a goal.
+**Start with:** `GET /inspections/sample` rendering the sample JSON (6.5, 6.6). The sample has no
+screenshot file, so the page must handle a missing screenshot.
+**Must do:**
+- Header: source URL, title, scan time, element count, scope used, warnings, Rescan and History links.
+- Screenshot with a box per element; clicking a table row highlights its box and the other way round.
+- Table: checkbox, element id, tag/role, name, label, key attributes, best locator, uniqueness badge
+  (red when there is no unique locator: "assistant will ask"), visible/enabled, all candidates expandable.
+- Filters: by type, text search, hide links, only unique. Rescan with a CSS scope.
+- Goal box + "Save selection" (at least one element and a goal of a few words), then "Ask model".
+- `_model_panel.html` layout from the `AskResult` fields (6.7): summary, referenced elements
+  (clickable), next action, clarifying questions, evidence line (provider, model, tokens, latency,
+  status), a visible note when the fallback answered, failed attempts collapsed underneath.
+  Until C's code lands, test the panel with a hand-made `AskResult`.
+- On hold: a manual model dropdown.
+**Done when:** on the sample (and later on real scans) a tester can filter, select 2–3 elements,
+write a goal and save it; the panel renders a test `AskResult`.
+
+### Task 6: Model client with automatic fallback, Person C (Feasibility evidence, 1 pt)
+**Target:** one place that makes every model call, records real tokens and latency, and falls back to
+Gemini automatically.
+**Must do:** `call_model` and `ModelResult` (6.7): send to Groq → on rate limit or error wait and
+retry once → if it still fails and a fallback is configured, send the same prompt to Gemini. Fallback
+only for failures to respond, not for answers that fail validation. Log every attempt with
+`db.log_model_call` (faked until Task 3 lands). Never log keys.
+**Done when:** offline tests (network faked) prove each path: success, fallback, no fallback
+configured; one live test returns real tokens.
+
+### Task 7a: Grounded prompt + validation, Person C
+**Target:** the prompt and the checks for the meaningful model call, built from the schema and sample only.
+**Must do:**
+- `build_summary_messages`: only the selected elements in compact form, inside `<page_data>` markers;
+  system instructions say page text is data, never instructions; cite elements by id; ask questions
+  when evidence is insufficient; return JSON in the `ModelSuggestion` format.
+- `validate_suggestion`: valid JSON in the agreed format; every cited id must exist in the scan;
+  warnings if it cites unselected elements or ignores a missing unique locator.
+**Done when:** tests pass on the sample: only selected elements appear in the prompt, hidden
+instructions in page text stay inside the markers, unknown ids and invalid JSON are rejected.
+
+### Task 7b: "Ask model" wiring, Person C (after Tasks 3, 5, 6)
+**Target:** connect prompt, model and validation to the page.
+**Must do:** `summarize_selection` and `AskResult` (6.7): load the scan and latest selection →
+build messages → `call_model` → validate → on validation errors retry once with the errors listed →
+if still invalid, report "invalid output". Route `POST /inspections/{inspection_id}/ask` (6.6).
+**Done when:** selecting username/password/login with the goal "verify login rejects a wrong
+password" returns a grounded answer citing those ids, with tokens and latency shown in B's panel.
+
+### Later (assigned after Tasks 3–7)
+- **Task 8: Evidence package + README:** real sample scan, usage page with CSV export, final README,
+  demo recording.
+- **Task 9: Final rubric review:** every rubric row has evidence; design doc matches the code.
+
+### Done
+- **Task 1: Local test page** (`tests/fixtures/login.html`): login form with labeled fields,
+  checkbox, dropdown, test-id button; duplicate "Help" links; `aria-label`-only button; disabled and
+  hidden buttons; result area with real success/error messages (valid login tester / secret).
+  Expected inspector result: 10 visible interactive elements + 1 hidden button warning.
+
+---
+
+## 8. Demo script (draft)
+
+1. Open our app, enter the supplied URL, click Scan; the visible browser opens and closes.
+2. Findings page: source URL and scan time, screenshot with boxes, table with locators and uniqueness.
+3. Filter the table; rescan with a scope.
+4. Select elements, write a goal, save.
+5. Ask the model; show the grounded answer, cited elements, tokens and latency.
+6. History page: earlier scans are kept.
+
+---
+
+## 9. Open questions
+
+- Phase 1 exact deadline date (Week 9).
+- Names for Person B and Person C.
+- Current free-tier Gemini Flash model id (check in Google AI Studio).
+
+---
+
+## 10. Change log
+
+| Date | Change |
+|---|---|
+| 2026-11-17 | Stack decisions: Python everywhere, runner as separate process, Groq + Gemini, frontend deferred |
+| 2026-11-18 | Skeleton built; design doc first draft; frontend = Jinja2; browser stays open a few seconds after scans |
+| 2026-11-18 | Data contract, sample inspection and schema tests added; password field has no ARIA role (sample fixed) |
+| 2026-11-18 | Call routing: main model + automatic fallback (option C); manual switch (option D) on hold |
+| 2026-11-18 | plan.md rewritten as the team plan (no code); kept in sync with the design doc after every decision or step |
+| 2026-11-18 | Task 1 done: local test page with deliberate edge cases and real login behavior; a modified copy is planned for Phase 2 rescan tests |
+| 2026-11-18 | Design doc moved to Google Docs as the main copy; the Claude doc is no longer updated |
+| 2026-11-18 | Google Doc synced: fallback settings in the model table, runner blocks only navigations to other hosts, browser hold time, fallback fields in the storage table |
+| 2026-11-19 | Task dependencies mapped; Task 7 split into 7a (prompt + validation) and 7b (wiring); three-person split in three stages |
+| 2026-11-19 | Owners set: A = Tasks 2–4, B = Task 5, C = Tasks 6–7; Tasks 8–9 deferred; added section 6, Shared names (files, settings, IDs, functions, routes, template variables) |
