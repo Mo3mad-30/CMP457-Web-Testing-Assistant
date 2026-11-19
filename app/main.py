@@ -123,6 +123,10 @@ def save_findings_selection(request: Request, inspection_id: str,
         _sample_selection = selection
     else:
         from app import db
-        db.save_selection(selection)
+        try:
+            db.save_selection(selection)
+        except ValueError as exc:  # plan 6.5: unknown inspection
+            return templates.TemplateResponse(request, "findings.html", _findings_context(
+                inspection, current, error=f"Selection not saved: {exc}"), status_code=400)
     return templates.TemplateResponse(request, "findings.html", _findings_context(
         inspection, selection, message="Selection saved"))
