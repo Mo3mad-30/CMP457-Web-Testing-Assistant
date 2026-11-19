@@ -1,9 +1,33 @@
 {% extends "base.html" %}
 {% block content %}
-<form method="post" action="/scan">
-  <label for="url">Page to inspect</label><br>
-  <input id="url" name="url" type="url" placeholder="https://www.saucedemo.com" required>
-  <button type="submit" disabled title="Enabled in the inspector task">Scan</button>
+{% if error %}
+  <p class="error" role="alert">{{ error }}</p>
+{% endif %}
+
+<form id="scan-form" method="post" action="/scan">
+  <p>
+    <label for="url">Page to inspect</label><br>
+    <input id="url" name="url" type="url" placeholder="https://www.saucedemo.com"
+           value="{{ url or '' }}" required>
+  </p>
+  <p>
+    <label for="scope">Scope (optional CSS selector, e.g. <code>#login</code>)</label><br>
+    <input id="scope" name="scope" type="text" placeholder="Leave empty to inspect the whole page"
+           value="{{ scope or '' }}">
+  </p>
+  <button id="scan-button" type="submit">Scan</button>
+  <span id="scan-status" class="muted" hidden>
+    Scanning… a browser window will open, inspect the page, and close by itself.
+  </span>
 </form>
-<p class="muted">Skeleton running. Scanning is added in the next tasks.</p>
+
+<p class="muted">Every scan is kept. See earlier scans in <a href="/history">History</a>.</p>
+
+<script>
+  // Show progress and stop double submits while the (slow) scan runs.
+  document.getElementById("scan-form").addEventListener("submit", function () {
+    document.getElementById("scan-button").disabled = true;
+    document.getElementById("scan-status").hidden = false;
+  });
+</script>
 {% endblock %}
