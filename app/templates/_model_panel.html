@@ -1,0 +1,24 @@
+<section id="model-panel" class="surface model-panel" aria-label="Model suggestion">
+  <div class="section-heading"><div><h3>Model suggestion</h3><p class="hint">Suggestions are grounded in your saved selection and require your review.</p></div></div>
+  {% if ask %}
+    {% if ask.errors %}<div class="notice error" role="alert"><strong>Model output needs attention</strong><ul>{% for item in ask.errors %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if ask.warnings %}<div class="notice warning"><strong>Validation warnings</strong><ul>{% for item in ask.warnings %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if ask.suggestion %}
+      <div class="model-answer"><h4>Summary</h4><p>{{ ask.suggestion.summary }}</p>
+        <h4>Referenced elements</h4><div class="reference-list">{% for element_id in ask.suggestion.referenced_element_ids %}<button type="button" class="reference-button" data-target="{{ element_id }}">{{ element_id }}</button>{% else %}<span class="hint">No references supplied</span>{% endfor %}</div>
+        <h4>Suggested next action</h4><p>{{ ask.suggestion.suggested_next_action }}</p>
+        <h4>Clarifying questions</h4>{% if ask.suggestion.clarifying_questions %}<ul>{% for question in ask.suggestion.clarifying_questions %}<li>{{ question }}</li>{% endfor %}</ul>{% else %}<p class="hint">None</p>{% endif %}
+      </div>
+    {% else %}<p class="hint">No validated suggestion is available.</p>{% endif %}
+    {% if ask.result %}
+      {% if ask.result.is_fallback %}<div class="notice warning"><strong>Fallback model answered.</strong> {{ ask.result.fallback_reason or 'The primary model did not respond.' }}</div>{% endif %}
+      <div class="evidence"><h4>Model usage evidence</h4><p><strong>Provider:</strong> {{ ask.result.provider }} · <strong>Model:</strong> {{ ask.result.model }}</p>
+        {% set attempts = ask.result.attempts %}{% if attempts %}{% set last_attempt = attempts[-1] %}
+        <p><strong>Status:</strong> {{ last_attempt.status }} · <strong>Prompt tokens:</strong> {{ last_attempt.prompt_tokens if last_attempt.prompt_tokens is not none else 'N/A' }} · <strong>Completion tokens:</strong> {{ last_attempt.completion_tokens if last_attempt.completion_tokens is not none else 'N/A' }} · <strong>Latency:</strong> {{ last_attempt.latency_ms }} ms</p>
+        {% set failed = attempts | rejectattr('status', 'equalto', 'ok') | list %}
+        {% if failed %}<details><summary>Earlier / failed model attempts ({{ failed | length }})</summary><ul>{% for attempt in failed %}<li>{{ attempt.provider }} / {{ attempt.model }} — {{ attempt.status }}; {{ attempt.latency_ms }} ms; prompt {{ attempt.prompt_tokens if attempt.prompt_tokens is not none else 'N/A' }}, completion {{ attempt.completion_tokens if attempt.completion_tokens is not none else 'N/A' }} tokens{% if attempt.fallback_reason %}; {{ attempt.fallback_reason }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+        {% else %}<p class="hint">No model-call attempt records available.</p>{% endif %}
+      </div>
+    {% endif %}
+  {% else %}<p class="empty-model">No model response yet. Select elements, save a testing goal, then choose Ask model.</p>{% endif %}
+</section>
