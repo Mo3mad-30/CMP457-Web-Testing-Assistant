@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  Local test page for the inspector and our tests.
+  Every element below exists on purpose; see the comment next to it.
+  Valid login: username "tester", password "secret".
+  Phase 2: copy to login_v2.html and change some ids/texts to test rescan + repair.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fixture Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; }
+    header, footer { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #ddd; }
+    footer { border-top: 1px solid #ddd; border-bottom: none; margin-top: 2rem; }
+    form div { margin: 0.75rem 0; }
+    label { display: block; }
+    #message { margin-top: 1rem; min-height: 1.5rem; }
+    .error { color: #b00020; }
+    .ok { color: #1b5e20; }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Duplicate link text #1: "Help" also appears in the footer, so text/role locators match 2 -->
+    <a href="#help" id="header-help">Help</a>
+    <!-- Name comes only from aria-label (no visible text) -->
+    <button type="button" aria-label="Open settings">&#9881;</button>
+  </header>
+
+  <h1>Fixture Login</h1>
+
+  <form id="login">
+    <div>
+      <!-- Labeled text input: get_by_label("Username") should be unique -->
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" placeholder="Enter username" autocomplete="off">
+    </div>
+    <div>
+      <!-- Labeled password input: has NO ARIA role, so no role locator -->
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Enter password">
+    </div>
+    <div>
+      <!-- Checkbox with a label after it -->
+      <input id="remember" name="remember" type="checkbox">
+      <label for="remember" style="display:inline">Remember me</label>
+    </div>
+    <div>
+      <!-- Dropdown (role: combobox) -->
+      <label for="lang">Language</label>
+      <select id="lang" name="lang">
+        <option value="en">English</option>
+        <option value="ar">Arabic</option>
+      </select>
+    </div>
+    <!-- Submit button with a Playwright test id -->
+    <button type="submit" data-testid="login-btn">Log in</button>
+  </form>
+
+  <!-- Result area: role=alert so Phase 2 tests can assert on it -->
+  <div id="message" role="alert" aria-live="polite"></div>
+
+  <!-- Disabled button: enabled must be false -->
+  <button type="button" id="export" disabled>Disabled action</button>
+
+  <!-- Hidden button: skipped by default, included only with --include-hidden -->
+  <button type="button" id="secret-action" style="display:none">Hidden</button>
+
+  <footer>
+    <!-- Duplicate link text #2 -->
+    <a href="#help" id="footer-help">Help</a>
+    <a href="#privacy">Privacy policy</a>
+  </footer>
+
+  <script>
+    // Simple login behavior so Phase 2 tests have something real to check.
+    document.getElementById("login").addEventListener("submit", function (event) {
+      event.preventDefault();
+      const user = document.getElementById("username").value;
+      const pass = document.getElementById("password").value;
+      const msg = document.getElementById("message");
+      if (user === "tester" && pass === "secret") {
+        msg.textContent = "Welcome, tester!";
+        msg.className = "ok";
+      } else {
+        msg.textContent = "Invalid username or password";
+        msg.className = "error";
+      }
+    });
+  </script>
+</body>
+</html>
