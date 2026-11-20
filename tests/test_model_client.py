@@ -198,7 +198,7 @@ def test_gemini_missing_key_makes_no_request():
 
 @pytest.fixture
 def settings(monkeypatch, logged):
-    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)  # tests never sleep
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 0, "error": 0})  # tests never sleep
     s = dataclasses.replace(
         config.settings,
         model_provider="groq", model_name="primary-model",
@@ -339,7 +339,7 @@ def test_logging_failure_does_not_break_the_call(settings, monkeypatch):
 
 
 def test_attempts_are_stored_in_the_real_database(isolated_settings, monkeypatch):
-    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 0, "error": 0})
     monkeypatch.setattr(config, "settings", dataclasses.replace(
         config.settings, model_provider="groq", model_name="primary-model",
         fallback_provider="gemini", fallback_model_name="fallback-model"))
@@ -354,3 +354,12 @@ def test_attempts_are_stored_in_the_real_database(isolated_settings, monkeypatch
     with db.connect() as conn:
         texts = [row[0] for row in conn.execute("SELECT response_text FROM model_calls ORDER BY id")]
     assert texts == [None, None, "{}"]
+
+@pytest.mark.parametrize("first, wait", [(RATE, 5.0), (ERR, 1.0)])
+def test_retry_wait_depends_on_the_failure(settings, monkeypatch, first, wait):
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 5.0, "error": 1.0})
+    slept = []
+    monkeypatch.setattr(model_client.time, "sleep", slept.append)
+    _script(monkeypatch, groq=[first, OK])
+    model_client.call_model(MESSAGES, "p")
+    assert slept == [wait]

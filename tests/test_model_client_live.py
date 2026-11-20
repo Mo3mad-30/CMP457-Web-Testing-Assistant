@@ -55,7 +55,7 @@ def test_live_fallback_to_gemini_when_groq_fails(monkeypatch):
     s = config.settings
     if not (s.gemini_api_key and s.fallback_provider == "gemini" and s.fallback_model_name):
         pytest.skip("Gemini fallback is not configured in .env")
-    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 0, "error": 0})
     monkeypatch.setattr(config, "settings", dataclasses.replace(s, groq_api_key="invalid-key"))
 
     result = model_client.call_model(MESSAGES, "summarize_selection")

@@ -183,7 +183,8 @@ def call_gemini(
         completion_tokens=completion,
     )
 
-RETRY_WAIT_SECONDS = 2.0  # pause before the single retry of the primary model
+# Pause before the single retry of the primary model: longer after a rate limit.
+RETRY_WAIT_SECONDS = {"rate_limited": 5.0, "error": 1.0}
 
 
 def _send(provider: str, messages: list[dict], model: str, api_key: str, json_mode: bool) -> ProviderOutcome:
@@ -245,7 +246,7 @@ def call_model(
     # 1. primary, then one retry after a short wait
     outcome = attempt(s.model_provider, s.model_name)
     if outcome.status != "ok":
-        time.sleep(RETRY_WAIT_SECONDS)
+        time.sleep(RETRY_WAIT_SECONDS.get(outcome.status, 1.0))
         outcome = attempt(s.model_provider, s.model_name)
     if outcome.status == "ok":
         result.text = outcome.text
