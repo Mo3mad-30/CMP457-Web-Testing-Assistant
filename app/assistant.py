@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from app import db, model_client, prompts, validation
 from app.model_client import ModelResult
 from shared.schemas import Inspection, ModelCallRecord, ModelSuggestion, Selection
+
+logger = logging.getLogger(__name__)
 
 PURPOSE = "summarize_selection"
 MAX_ECHO = 2000  # characters of a rejected answer that are sent back to the model
@@ -24,12 +28,30 @@ def _tried(result: ModelResult) -> str:
     return ", ".join(f"{a.provider} {a.status}" for a in result.attempts) or "no attempts"
 
 
-def _mark_last_invalid(result: ModelResult) -> ModelResult:
-    """Copy of the result whose last attempt (the one that answered) is marked invalid_output."""
-    attempts: list[ModelCallRecord] = list(result.attempts)
-    if attempts:
-        attempts[-1] = attempts[-1].model_copy(update={"status": "invalid_output"})
-    return dataclasses.replace(result, attempts=attempts)
+def _record_invalid(result: ModelResult, rejected_text: str, inspection_id: str) -> ModelResult:
+    """Log one extra invalid_output row for a rejected answer and append it to the attempts.
+
+    Rows are append-only: the attempt that produced the answer keeps its "ok" row (with the real
+    tokens), so tokens are never counted twice. The extra row has no tokens and latency 0.
+    """
+    record = ModelCallRecord(
+        provider=result.provider,
+        model=result.model,
+        purpose=PURPOSE,
+        inspection_id=inspection_id,
+        prompt_tokens=None,
+        completion_tokens=None,
+        latency_ms=0,
+        status="invalid_output",
+        is_fallback=result.is_fallback,
+        fallback_reason=result.fallback_reason,
+        created_at=datetime.now(timezone.utc),
+    )
+    try:
+        db.log_model_call(record, rejected_text)
+    except Exception:  # a broken database must not hide the answer from the tester
+        logger.warning("Could not store invalid_output record", exc_info=True)
+    return dataclasses.replace(result, attempts=[*result.attempts, record])
 
 
 def _retry_prompt(errors: list[str]) -> str:
@@ -52,7 +74,7 @@ def summarize(inspection: Inspection, selection: Selection) -> AskResult:
     if check.ok:
         return AskResult(check.suggestion, [], check.warnings, first)
 
-    first = _mark_last_invalid(first)
+    first = _record_invalid(first, first.text, inspection.inspection_id)
     retry_messages = messages + [
         {"role": "assistant", "content": first.text[:MAX_ECHO]},
         {"role": "user", "content": _retry_prompt(check.errors)},
@@ -71,7 +93,7 @@ def summarize(inspection: Inspection, selection: Selection) -> AskResult:
 
     return AskResult(
         errors=["Invalid output: the model's answer failed validation twice."] + check.errors,
-        result=_mark_last_invalid(combined),
+        result=_record_invalid(combined, second.text, inspection.inspection_id),
     )
 
 

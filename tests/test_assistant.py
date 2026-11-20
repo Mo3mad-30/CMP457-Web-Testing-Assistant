@@ -1,12 +1,17 @@
+"""Task 7b: Ask model (assistant + /ask route). call_model is faked; storage is temporary."""
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app import assistant, main
+from app import assistant, db, main
 from app.model_client import ModelResult
 from shared.schemas import Inspection, ModelCallRecord, Selection
+
+# Every test gets its own data folder and database (invalid answers are logged to model_calls).
+pytestmark = pytest.mark.usefixtures("isolated_settings")
 
 SAMPLE = Path(__file__).resolve().parent.parent / "docs" / "sample_inspection.json"
 
@@ -75,7 +80,7 @@ def test_invalid_answer_is_retried_once_with_the_errors_listed(monkeypatch):
     retry = calls[1]["messages"]
     assert [m["role"] for m in retry] == ["system", "user", "assistant", "user"]
     assert "not valid JSON" in retry[3]["content"]
-    assert [a.status for a in ask.result.attempts] == ["invalid_output", "ok"]
+    assert [a.status for a in ask.result.attempts] == ["ok", "invalid_output", "ok"]
 
 
 def test_invalid_twice_reports_invalid_output(monkeypatch):
@@ -84,7 +89,7 @@ def test_invalid_twice_reports_invalid_output(monkeypatch):
     assert ask.suggestion is None
     assert ask.errors[0].startswith("Invalid output")
     assert len(calls) == 2
-    assert [a.status for a in ask.result.attempts] == ["invalid_output", "invalid_output"]
+    assert [a.status for a in ask.result.attempts] == ["ok", "invalid_output", "ok", "invalid_output"]
 
 
 def test_no_model_answer_is_reported_without_a_retry(monkeypatch):
@@ -101,7 +106,7 @@ def test_retry_that_gets_no_answer_keeps_the_first_attempt(monkeypatch):
     ask = assistant.summarize(load_sample(), make_selection(["el-001"]))
     assert ask.suggestion is None
     assert "retry" in ask.errors[0]
-    assert [a.status for a in ask.result.attempts] == ["invalid_output", "error", "error"]
+    assert [a.status for a in ask.result.attempts] == ["ok", "invalid_output", "error", "error"]
 
 
 def test_fallback_information_reaches_the_result(monkeypatch):
@@ -164,3 +169,47 @@ def test_ask_route_without_a_selection_makes_no_model_call(monkeypatch):
     assert response.status_code == 400
     assert "Save a selection" in response.text
     assert calls == []
+
+
+def _rows():
+    with db.connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT provider, model, purpose, inspection_id, prompt_tokens, completion_tokens, latency_ms,"
+            " status, is_fallback, response_text FROM model_calls ORDER BY id")]
+
+
+def test_invalid_answer_adds_one_invalid_output_row(monkeypatch):
+    script(monkeypatch, result(BAD, "ok"), result(GOOD, "ok"))
+    assistant.summarize(load_sample(), make_selection(["el-001", "el-002"]))
+    # call_model is faked, so only the assistant's own invalid_output row reaches the database
+    assert _rows() == [{
+        "provider": "groq", "model": "m", "purpose": "summarize_selection", "inspection_id": "insp-0001",
+        "prompt_tokens": None, "completion_tokens": None, "latency_ms": 0, "status": "invalid_output",
+        "is_fallback": 0, "response_text": BAD,
+    }]
+
+
+def test_invalid_twice_adds_two_invalid_output_rows(monkeypatch):
+    other_bad = json.dumps({"summary": "x", "referenced_element_ids": ["el-012"], "suggested_next_action": "y"})
+    script(monkeypatch, result(BAD, "ok"), result(other_bad, "ok"))
+    assistant.summarize(load_sample(), make_selection(["el-001"]))
+    rows = _rows()
+    assert [r["status"] for r in rows] == ["invalid_output", "invalid_output"]
+    assert [r["response_text"] for r in rows] == [BAD, other_bad]
+
+
+def test_invalid_output_from_the_fallback_keeps_its_provider(monkeypatch):
+    script(monkeypatch, result(BAD, "error", "error", "ok", provider="gemini", is_fallback=True,
+                               reason="groq error after retry"), result(GOOD, "ok"))
+    ask = assistant.summarize(load_sample(), make_selection(["el-001", "el-002"]))
+    invalid = ask.result.attempts[3]
+    assert (invalid.provider, invalid.status, invalid.is_fallback) == ("gemini", "invalid_output", True)
+
+
+def test_a_broken_database_does_not_hide_the_answer(monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(assistant.db, "log_model_call", broken)
+    script(monkeypatch, result(BAD, "ok"), result(GOOD, "ok"))
+    assert assistant.summarize(load_sample(), make_selection(["el-001", "el-002"])).suggestion is not None
+
