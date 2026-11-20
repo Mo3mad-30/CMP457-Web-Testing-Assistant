@@ -1,18 +1,20 @@
 """Model client: the only place in the app that talks to a language model.
 
-Names and signatures follow plan.md section 6.7. The behavior is built step by step:
-provider calls, retry, fallback and logging.
+Names and signatures follow plan.md section 6.7: provider calls, one retry, automatic fallback,
+and a log row for every attempt. Providers are called directly with httpx (plan decision 3a).
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from shared.schemas import ModelCallRecord
-import time
-from typing import Literal
-import httpx
-from datetime import datetime, timezone
-from app import config
-from app import config, db
+
 import logging
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Literal
+
+import httpx
+
+from app import config, db
+from shared.schemas import ModelCallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -180,15 +182,6 @@ def call_gemini(
         completion_tokens=completion,
     )
 
-# def call_model(
-#     messages: list[dict],
-#     purpose: str,
-#     inspection_id: str | None = None,
-#     json_mode: bool = True,
-# ) -> ModelResult:
-#     """Send messages to the primary model, retry once, then fall back (steps 3-6)."""
-#     raise NotImplementedError("call_model is built in steps 3 to 6")
-
 RETRY_WAIT_SECONDS = 2.0  # pause before the single retry of the primary model
 
 
@@ -238,13 +231,6 @@ def call_model(
     """Primary model -> one retry -> fallback model (if configured). Never raises on provider failure."""
     s = config.settings  # read at call time so tests can swap settings
     result = ModelResult(text=None, provider=s.model_provider, model=s.model_name)
-
-    # def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
-    #     outcome = _send(provider, messages, model, _api_key(provider), json_mode)
-    #     result.attempts.append(
-    #         _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
-    #     )
-    #     return outcome
 
     def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
         outcome = _send(provider, messages, model, _api_key(provider), json_mode)

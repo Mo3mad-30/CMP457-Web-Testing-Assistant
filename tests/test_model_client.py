@@ -1,14 +1,15 @@
-import inspect
-from app.model_client import ModelResult, call_model
-import json
-import httpx
-from app.model_client import call_groq
-from app.model_client import _to_gemini_request, call_gemini
+"""Offline tests for the model client: the network and the database are faked."""
 import dataclasses
+import inspect
+import json
+
+import httpx
 import pytest
-from app import config, model_client
-from app.model_client import ProviderOutcome
+
 from app import config, db, model_client
+from app.model_client import (
+    ModelResult, ProviderOutcome, _to_gemini_request, call_gemini, call_groq, call_model,
+)
 
 OK = ProviderOutcome("ok", 50, text="{}", prompt_tokens=10, completion_tokens=5)
 RATE = ProviderOutcome("rate_limited", 5, error="HTTP 429")
