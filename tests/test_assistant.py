@@ -151,24 +151,38 @@ def test_summarize_selection_loads_scan_and_selection(monkeypatch):
     assert ask.suggestion is not None
 
 
-def test_ask_route_shows_the_validated_answer(monkeypatch):
+def test_ask_route_refuses_the_sample_scan(monkeypatch):
+    """Plan decision 13: no Ask on the sample, even with a saved sample selection; no model call, no row."""
     monkeypatch.setattr(main, "_sample_selection", make_selection(["el-001", "el-002"]))
-    script(monkeypatch, result(GOOD, "ok"))
-    client = TestClient(main.app)  # no "with": startup is not run, so no real database is touched
-    response = client.post("/inspections/sample/ask")
-    assert response.status_code == 200
-    assert "model-answer" in response.text
-    assert "Username and password fields" in response.text
+    calls = script(monkeypatch, result(GOOD, "ok"))
+    with TestClient(main.app) as client:
+        response = client.post("/inspections/sample/ask")
+    assert response.status_code == 400
+    assert "Ask is not available on the sample scan. Scan a page first." in response.text
+    assert "model-answer" not in response.text
+    assert calls == [] and _rows() == []
 
 
-def test_ask_route_without_a_selection_makes_no_model_call(monkeypatch):
-    monkeypatch.setattr(main, "_sample_selection", None)
+def test_ask_route_without_a_selection_makes_no_model_call(monkeypatch, isolated_settings):
+    insp = _saved_scan(isolated_settings)
     calls = script(monkeypatch)
-    client = TestClient(main.app)
-    response = client.post("/inspections/sample/ask")
+    with TestClient(main.app) as client:
+        response = client.post(f"/inspections/{insp.inspection_id}/ask")
     assert response.status_code == 400
     assert "Save a selection" in response.text
     assert calls == []
+
+
+def test_ask_route_calls_summarize_selection(monkeypatch, isolated_settings):
+    insp = _saved_scan(isolated_settings)
+    db.save_selection(make_selection(["el-001", "el-002"]).model_copy(update={"inspection_id": insp.inspection_id}))
+    seen = []
+    real = assistant.summarize_selection
+    monkeypatch.setattr(assistant, "summarize_selection", lambda iid: seen.append(iid) or real(iid))
+    script(monkeypatch, result(GOOD, "ok"))
+    with TestClient(main.app) as client:
+        assert client.post(f"/inspections/{insp.inspection_id}/ask").status_code == 200
+    assert seen == [insp.inspection_id]
 
 
 def _rows():
@@ -244,13 +258,16 @@ def test_ask_route_unknown_scan_is_404(monkeypatch):
     assert calls == []
 
 
-def test_model_output_is_escaped_on_the_page(monkeypatch):
+def test_model_output_is_escaped_on_the_page(monkeypatch, isolated_settings):
     evil = json.dumps({
         "summary": "<script>alert(1)</script>", "referenced_element_ids": ["el-001"],
         "suggested_next_action": "<img src=x onerror=alert(2)>", "clarifying_questions": ["<b>bold?</b>"],
     })
-    monkeypatch.setattr(main, "_sample_selection", make_selection(["el-001"]))
+    insp = _saved_scan(isolated_settings)
+    db.save_selection(make_selection(["el-001"]).model_copy(update={"inspection_id": insp.inspection_id}))
     script(monkeypatch, result(evil, "ok"))
-    page = TestClient(main.app).post("/inspections/sample/ask").text
+    with TestClient(main.app) as client:
+        page = client.post(f"/inspections/{insp.inspection_id}/ask").text
+    assert "model-answer" in page
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;alert(1)&lt;/script&gt;" in page
     assert "<img src=x" not in page and "<b>bold?</b>" not in page
