@@ -102,9 +102,9 @@ record. Run `pytest` after every change.
 | Task 3: Storage | Done | Person A (Mohammad) | `app/db.py` + 11 tests (29 total passing); tables created at app startup |
 | Task 4: Runner client + scan pages | Done | Person A (Mohammad) | `app/runner_client.py`, scan/history/screenshot routes, `index.html`, `history.html`; 48 tests passing |
 | Task 5: Findings page | Done | Person B | Reviewed, 2 small integration fixes + 8 tests added; merged to `main` (PR #1) |
-| Task 6: Model client with fallback | Fix round | Person C | Branch `task-6-model-client`: logic and 33 tests pass; uses `httpx` (decision pending); no live call verified yet (no key) |
-| Task 7a: Prompt + validation | Fix round | Person C | Branch `task-7a-prompt-validation`: 19 tests pass; needs fixes `16bdfa7` (role/tag injection) and `00d405e` (no cited ids = error) |
-| Task 7b: "Ask model" wiring | Fix round | Person C | Branch `task-7b-ask-model` reviewed: real Ask works (local page 609+541 tokens, 2.2 s; saucedemo 636+379, 1.6 s), live Groq→Gemini fallback works; 135 tests with fixes |
+| Task 6: Model client with fallback | Done | Person C | Branch `task-6-model-client`: logic and 33 tests pass; uses `httpx` (decision pending); no live call verified yet (no key) |
+| Task 7a: Prompt + validation | Done | Person C | Branch `task-7a-prompt-validation`: 19 tests pass; needs fixes `16bdfa7` (role/tag injection) and `00d405e` (no cited ids = error) |
+| Task 7b: "Ask model" wiring | Done | Person C | Branch `task-7b-ask-model` reviewed: real Ask works (local page 609+541 tokens, 2.2 s; saucedemo 636+379, 1.6 s), live Groq→Gemini fallback works; 135 tests with fixes |
 | Task 8: Evidence package + README | Later | | Assigned after Tasks 3–7 |
 | Task 9: Final rubric review | Later | | Assigned after Task 8 |
 
@@ -114,7 +114,7 @@ record. Run `pytest` after every change.
 |---|---|---|
 | A (Mohammad) | 2 Inspector (done), 3 Storage (done), 4 Runner client + scan pages (done) | `runner/inspect_page.py`, `app/db.py`, `app/runner_client.py`, `index.html`, `history.html`, A's routes |
 | B | 5 Findings page (done) | `findings.html`, `_model_panel.html`, `app/static/app.js`, `app/static/app.css`, B's routes |
-| C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
+| C | 6 Model client, 7a Prompt + validation, 7b "Ask model" wiring (all done) | `app/model_client.py`, `app/prompts.py`, `app/validation.py`, `app/assistant.py`, C's route |
 
 Shared file: `app/main.py`. Each person adds **only their own routes** (section 6.6).
 
@@ -129,8 +129,8 @@ Shared file: `app/main.py`. Each person adds **only their own routes** (section 
 | 7a. Prompt + validation | Schema + sample | Yes |
 | 7b. "Ask model" wiring | Tasks 3, 5, 6 | Last |
 
-**Start right away:** Tasks 6 and 7a. Tasks 1–5 are done and merged into `main` (59 tests passing).
-**Critical path:** 6 → 7b (the "Ask model" step). Then Tasks 8–9.
+**All build tasks (1–7b) are done and merged into `main` (140 tests passing).** Next: the Phase 1 finishing steps in section 7.
+**Critical path:** live evidence → Task 8 (evidence package, README, demo) → Task 9 (final review and submission).
 
 ---
 
@@ -292,10 +292,12 @@ Rescan = a form on the findings page posting to `POST /scan` with the same `url`
 
 `findings.html` also receives `screenshot_available` (bool). `_model_panel.html` is included by
 `findings.html` and reads only `ask`; it shows a placeholder when `ask` is `None`. The panel shows tokens,
-latency and status from the **last** entry in `result.attempts`, lists every non-`ok` attempt as a
+latency and status from the **last successful (`ok`)** entry in `result.attempts` (decision 12; the
+last entry only when none is `ok`), lists every non-`ok` attempt as a
 collapsed "failed attempts" list, uses `is_fallback` / `fallback_reason` for the fallback note, and
 turns `referenced_element_ids` into buttons that jump to the table row. The Ask button is a form posting
-to `POST /inspections/{id}/ask` with no fields, disabled until a selection is saved.
+to `POST /inspections/{id}/ask` with no fields, disabled until a selection is saved, and always disabled on
+the sample scan ("Scan a page to ask the model."; decision 13).
 
 `index.html`: `model`, `error`, and on a failed scan also `url`, `scope` (so the form keeps the tester's input). `history.html`: `model`, `inspections` (from `db.list_inspections()`). `base.html` has the header with Scan and History links and the model label; pages add their own CSS or scripts in the `head` block.
 
@@ -371,13 +373,14 @@ mirror the server's (no element, goal under 3 words, id not in this scan); selec
 are kept in memory only.
 
 **Follow-ups (small, not blocking Phase 1):**
+- [ ] Panel edge case: if the first answer came from Gemini and the retry from Groq, the fallback note does not appear (failed Groq attempts are still listed).
 - [ ] Test with an element that has no unique locator, so the red "Assistant will ask" badge is covered.
 - [ ] Unknown inspection id returns JSON 404; an HTML "scan not found" page would be friendlier.
 - [ ] `app/main.py` tidy-up: B's imports mid-file, `Form`/`HTTPException` imported twice, `db` imported
   inside functions, sample id `"insp-0001"` hard-coded in `_findings_context`.
 - [ ] Type filter covers tags only, not roles; History link appears twice on the findings page.
 - [ ] Add `test-artifacts/` to `.gitignore`.
-- [ ] Decide whether "Ask model" supports the `sample` scan (it is not in the database).
+- [x] Decide whether "Ask model" supports the `sample` scan: no (decision 13).
 
 ### Task 6: Model client with automatic fallback, Person C (Feasibility evidence, 1 pt)
 **Target:** one place that makes every model call, records real tokens and latency, and falls back to
@@ -410,8 +413,8 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 
 ### Finishing Phase 1 (after Tasks 6 and 7 are merged)
 
-**Step 1: Combined fix round and merge of Tasks 6, 7a, 7b** (Person C, reviewed by A): one fix prompt with
-every item from both reviews (including the invalid-output rule if 7b lacks it); merge 6 → 7a → 7b.
+**Step 1: Combined fix round and merge of Tasks 6, 7a, 7b: done** (PRs #3, #4, #5; 140 tests on `main`;
+real Ask on `main`: 661 + 324 tokens, 1.6 s, only the file name sent, no invented values).
 
 **Step 2: Live verification and evidence** (A): real Ask on the local test page and saucedemo; record
 provider, model, tokens, latency; one fallback run; export the model-call log.
@@ -428,11 +431,10 @@ provider, model, tokens, latency; one fallback run; export the model-call log.
 - [ ] Optional: a ready-made CSS file linked in `base.html` for a cleaner demo.
 
 **Design doc gaps to close:**
-- [ ] "Ask model" flow (from the 7b review): retry on validation failure, invalid-output recording, what
-  the tester sees in each outcome.
-- [ ] Real measured tokens and latency (local page and saucedemo) and the hardware/OS/Python used.
-- [ ] A "Testing and evidence" section: test count and what the tests cover, the end-to-end run, where the
-  sample output and usage CSV are; remove the old test count from the findings section.
+- [x] "Ask model" flow: added as "Asking the model".
+- [x] Real measured tokens and latency (in "Asking the model").
+- [ ] Hardware/OS/Python versions used for the measurements.
+- [x] "Testing and evidence" section added (140 tests, end-to-end runs, where the evidence will be).
 - [ ] A short "How Phase 2 uses Phase 1 results" table (snapshot → test design, locators → code
   generation, stored scans → rescan diff, selections → approved scope, call log → usage dashboard).
 - [ ] A data-flow diagram with the approval gates marked (the flow is only a list today).
@@ -502,3 +504,4 @@ provider, model, tokens, latency; one fallback run; export the model-call log.
 | 2026-11-20 | Agreed (on hold until the 7b review): record a failed validation as one extra `model_calls` row with status `invalid_output` (same provider/model, rejected answer as response text, no tokens, latency 0); apply in the combined fix round only if 7b does not already handle it |
 | 2026-11-20 | Phase 1 finishing list added (fix round, live evidence, Task 8 split, design-doc gaps, Task 9 checklist); design doc data-flow step 1 corrected (goal is set on the findings page, not with the URL) |
 | 2026-11-21 | Task 7b reviewed. Decisions 12–15 (invalid-output row, no Ask on the sample scan, no outside knowledge, model call settings). One combined fix round for Tasks 6, 7a, 7b prepared (fixes from both reviews + sample form fix + panel evidence line); merge after confirmation. Design doc gained an "Asking the model" section with measured tokens and latency |
+| 2026-11-21 | Tasks 6, 7a, 7b merged (PRs #3, #4, #5): 140 tests passing on `main`; real Ask on `main` 661 + 324 tokens, 1.6 s. All build tasks done. Design doc: "Testing and evidence" section added, latest measurement in "Asking the model" |
