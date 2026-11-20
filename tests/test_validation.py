@@ -88,10 +88,10 @@ def test_citing_an_unselected_but_real_element_is_a_warning():
     assert any("el-002" in w for w in r.warnings)
 
 
-def test_answer_citing_no_elements_is_a_warning():
+def test_answer_citing_no_elements_is_rejected():
     r = validate_suggestion(answer(referenced_element_ids=[]), load_sample(), make_selection(["el-001"]))
-    assert r.suggestion is not None
-    assert any("cites no elements" in w for w in r.warnings)
+    assert r.suggestion is None
+    assert any("cites no elements" in e for e in r.errors)
 
 
 def test_missing_unique_locator_without_a_question_is_a_warning():
