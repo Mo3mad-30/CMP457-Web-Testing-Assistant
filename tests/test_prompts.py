@@ -104,3 +104,15 @@ def test_long_text_is_truncated():
 def test_unknown_and_repeated_ids_are_ignored():
     msgs = build_summary_messages(load_sample(), make_selection(["el-001", "el-999", "el-001"]))
     assert [e["id"] for e in payload_of(msgs[1]["content"])["elements"]] == ["el-001"]
+
+def test_local_file_page_sends_only_the_file_name():
+    local = load_sample().model_copy(update={
+        "final_url": "file:///C:/Users/someone/My%20Projects/app/tests/fixtures/login.html"})
+    user = build_summary_messages(local, make_selection(["el-001"]))[1]["content"]
+    assert payload_of(user)["page"]["url"] == "file: login.html"
+    assert "someone" not in user and "Projects" not in user
+
+
+def test_web_page_url_is_kept():
+    user = build_summary_messages(load_sample(), make_selection(["el-001"]))[1]["content"]
+    assert payload_of(user)["page"]["url"] == load_sample().final_url

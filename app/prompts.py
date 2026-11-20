@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import PurePosixPath
+from urllib.parse import unquote, urlparse
 
 from shared.schemas import Element, Inspection, Selection
 
@@ -71,6 +73,14 @@ def compact_element(element: Element) -> dict:
     return {k: v for k, v in compact.items() if v is not None and v != {} and v != ""}
 
 
+def _shareable_url(url: str) -> str:
+    """A local file:// page is sent as its file name only: the full path holds the user's folder names."""
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        return "file: " + PurePosixPath(unquote(parsed.path)).name
+    return url
+
+
 def build_summary_messages(inspection: Inspection, selection: Selection) -> list[dict]:
     """System + user messages for 'summarize the selection'. Unknown or repeated ids are skipped."""
     elements: list[dict] = []
@@ -84,7 +94,7 @@ def build_summary_messages(inspection: Inspection, selection: Selection) -> list
     payload = {
         "page": {
             "title": _clean(inspection.title, MAX_TEXT),
-            "url": _clean(inspection.final_url, MAX_ATTR_VALUE * 2),
+            "url": _clean(_shareable_url(inspection.final_url), MAX_ATTR_VALUE * 2),
         },
         "elements": elements,
     }
