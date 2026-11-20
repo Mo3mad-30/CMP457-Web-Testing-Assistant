@@ -60,6 +60,8 @@ def validate_suggestion(raw_text: str | None, inspection: Inspection, selection:
             "These element ids are not in the scan: " + ", ".join(unknown)
             + ". Cite only ids from the provided elements."
         )
+    if not cited:
+        result.errors.append("The answer cites no elements. Cite the ids of the elements it talks about.")
     if not suggestion.summary.strip():
         result.errors.append("The summary is empty.")
     if result.errors:
@@ -69,8 +71,6 @@ def validate_suggestion(raw_text: str | None, inspection: Inspection, selection:
     extra = [i for i in cited if i not in selected]
     if extra:
         result.warnings.append("The answer cites elements the tester did not select: " + ", ".join(extra) + ".")
-    if not cited:
-        result.warnings.append("The answer cites no elements.")
 
     no_unique = [
         i for i in selected
