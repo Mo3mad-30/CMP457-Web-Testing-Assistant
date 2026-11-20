@@ -251,6 +251,8 @@ def call_model(
         record = _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
         result.attempts.append(record)
         _log(record, outcome.text if outcome.status == "ok" else None)
+        if outcome.status != "ok":
+            logger.warning("%s/%s attempt failed (%s): %s", provider, model, outcome.status, outcome.error)
         return outcome
 
     # 1. primary, then one retry after a short wait
