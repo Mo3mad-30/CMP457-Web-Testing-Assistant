@@ -8,10 +8,11 @@ import dataclasses
 import pytest
 from app import config, model_client
 from app.model_client import ProviderOutcome
+from app import config, db, model_client
+
 OK = ProviderOutcome("ok", 50, text="{}", prompt_tokens=10, completion_tokens=5)
 RATE = ProviderOutcome("rate_limited", 5, error="HTTP 429")
 ERR = ProviderOutcome("error", 5, error="HTTP 500")
-
 
 def test_model_result_defaults():
     r = ModelResult(text=None, provider="groq", model="openai/gpt-oss-120b")
@@ -194,7 +195,7 @@ def test_gemini_missing_key_makes_no_request():
     assert out.status == "error"
 
 @pytest.fixture
-def settings(monkeypatch):
+def settings(monkeypatch, logged):
     monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)  # tests never sleep
     s = dataclasses.replace(
         config.settings,
@@ -290,3 +291,64 @@ def test_unknown_provider_does_not_crash(settings, monkeypatch):
     r = model_client.call_model(MESSAGES, "p")
     assert r.text is None
     assert [a.status for a in r.attempts] == ["error", "error"]
+
+@pytest.fixture
+def logged(monkeypatch):
+    """Replace db.log_model_call with a list, so tests never touch the real database."""
+    rows = []
+
+    def fake(record, response_text=None, db_path=None):
+        rows.append((record, response_text))
+        return len(rows)
+
+    monkeypatch.setattr(model_client.db, "log_model_call", fake)
+    return rows
+
+def test_success_logs_one_row_with_response_text(settings, logged, monkeypatch):
+    _script(monkeypatch, groq=[OK])
+    r = model_client.call_model(MESSAGES, "summarize_selection", "insp-1")
+    assert [rec for rec, _ in logged] == r.attempts
+    assert [text for _, text in logged] == ["{}"]
+
+
+def test_fallback_path_logs_every_attempt_text_only_on_success(settings, logged, monkeypatch):
+    _script(monkeypatch, groq=[RATE, RATE], gemini=[OK])
+    r = model_client.call_model(MESSAGES, "p")
+    assert [rec for rec, _ in logged] == r.attempts
+    assert [text for _, text in logged] == [None, None, "{}"]
+    assert [rec.is_fallback for rec, _ in logged] == [False, False, True]
+
+
+def test_failed_calls_are_logged_too(settings, logged, monkeypatch):
+    monkeypatch.setattr(config, "settings", dataclasses.replace(settings, fallback_provider="", fallback_model_name=""))
+    _script(monkeypatch, groq=[ERR, ERR])
+    model_client.call_model(MESSAGES, "p")
+    assert [(rec.status, text) for rec, text in logged] == [("error", None), ("error", None)]
+
+
+def test_logging_failure_does_not_break_the_call(settings, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(model_client.db, "log_model_call", broken)
+    _script(monkeypatch, groq=[OK])
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text == "{}"
+
+
+def test_attempts_are_stored_in_the_real_database(isolated_settings, monkeypatch):
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)
+    monkeypatch.setattr(config, "settings", dataclasses.replace(
+        config.settings, model_provider="groq", model_name="primary-model",
+        fallback_provider="gemini", fallback_model_name="fallback-model"))
+    _script(monkeypatch, groq=[RATE, RATE], gemini=[OK])
+    db.init_db()
+
+    model_client.call_model(MESSAGES, "summarize_selection")
+
+    rows = db.list_model_calls()
+    assert [row["status"] for row in rows] == ["ok", "rate_limited", "rate_limited"]  # newest first
+    assert rows[0]["is_fallback"] is True
+    with db.connect() as conn:
+        texts = [row[0] for row in conn.execute("SELECT response_text FROM model_calls ORDER BY id")]
+    assert texts == [None, None, "{}"]

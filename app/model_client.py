@@ -11,6 +11,17 @@ from typing import Literal
 import httpx
 from datetime import datetime, timezone
 from app import config
+from app import config, db
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _log(record: ModelCallRecord, response_text: str | None) -> None:
+    """Store one attempt. A broken database must never break the model call."""
+    try:
+        db.log_model_call(record, response_text)
+    except Exception:
+        logger.warning("Could not store model call record", exc_info=True)
 
 @dataclass
 class ModelResult:
@@ -228,11 +239,18 @@ def call_model(
     s = config.settings  # read at call time so tests can swap settings
     result = ModelResult(text=None, provider=s.model_provider, model=s.model_name)
 
+    # def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
+    #     outcome = _send(provider, messages, model, _api_key(provider), json_mode)
+    #     result.attempts.append(
+    #         _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
+    #     )
+    #     return outcome
+
     def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
         outcome = _send(provider, messages, model, _api_key(provider), json_mode)
-        result.attempts.append(
-            _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
-        )
+        record = _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
+        result.attempts.append(record)
+        _log(record, outcome.text if outcome.status == "ok" else None)
         return outcome
 
     # 1. primary, then one retry after a short wait
