@@ -213,3 +213,44 @@ def test_a_broken_database_does_not_hide_the_answer(monkeypatch):
     script(monkeypatch, result(BAD, "ok"), result(GOOD, "ok"))
     assert assistant.summarize(load_sample(), make_selection(["el-001", "el-002"])).suggestion is not None
 
+
+def _saved_scan(settings) -> Inspection:
+    insp = load_sample().model_copy(update={"inspection_id": "insp-20261120-120000-abcd", "screenshot_path": None})
+    path = settings.data_dir / "jobs" / insp.inspection_id / "inspection.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(insp.model_dump_json(), encoding="utf-8")
+    db.save_inspection(insp, path)
+    return insp
+
+
+def test_ask_route_on_a_saved_scan_renders_the_real_panel(monkeypatch, isolated_settings):
+    insp = _saved_scan(isolated_settings)
+    db.save_selection(make_selection(["el-001", "el-002"]).model_copy(update={"inspection_id": insp.inspection_id}))
+    script(monkeypatch, result(GOOD, "error", "error", "ok", provider="gemini", is_fallback=True,
+                               reason="groq error after retry"))
+    with TestClient(main.app) as client:
+        page = client.post(f"/inspections/{insp.inspection_id}/ask").text
+    assert "Username and password fields" in page
+    assert 'data-target="el-001"' in page and 'data-target="el-002"' in page  # buttons that jump to rows
+    assert "Fallback model answered." in page and "groq error after retry" in page
+    assert "Earlier / failed model attempts (2)" in page
+    assert "Latency:</strong> 100 ms" in page
+
+
+def test_ask_route_unknown_scan_is_404(monkeypatch):
+    calls = script(monkeypatch)
+    with TestClient(main.app) as client:
+        assert client.post("/inspections/insp-nope/ask").status_code == 404
+    assert calls == []
+
+
+def test_model_output_is_escaped_on_the_page(monkeypatch):
+    evil = json.dumps({
+        "summary": "<script>alert(1)</script>", "referenced_element_ids": ["el-001"],
+        "suggested_next_action": "<img src=x onerror=alert(2)>", "clarifying_questions": ["<b>bold?</b>"],
+    })
+    monkeypatch.setattr(main, "_sample_selection", make_selection(["el-001"]))
+    script(monkeypatch, result(evil, "ok"))
+    page = TestClient(main.app).post("/inspections/sample/ask").text
+    assert "<script>alert(1)</script>" not in page and "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert "<img src=x" not in page and "<b>bold?</b>" not in page
