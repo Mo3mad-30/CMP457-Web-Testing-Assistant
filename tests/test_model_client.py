@@ -3,6 +3,14 @@ from app.model_client import ModelResult, call_model
 import json
 import httpx
 from app.model_client import call_groq
+from app.model_client import _to_gemini_request, call_gemini
+import dataclasses
+import pytest
+from app import config, model_client
+from app.model_client import ProviderOutcome
+OK = ProviderOutcome("ok", 50, text="{}", prompt_tokens=10, completion_tokens=5)
+RATE = ProviderOutcome("rate_limited", 5, error="HTTP 429")
+ERR = ProviderOutcome("error", 5, error="HTTP 500")
 
 
 def test_model_result_defaults():
@@ -103,3 +111,182 @@ def test_groq_missing_key_makes_no_request():
 
     out = call_groq(MESSAGES, "m", "", client=_client(handler))
     assert out.status == "error"
+
+GEMINI_OK = {
+    "candidates": [{"content": {"parts": [{"text": '{"summary": '}, {"text": '"x"}'}]}}],
+    "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 20, "thoughtsTokenCount": 10},
+}
+
+
+def test_gemini_request_conversion():
+    msgs = [
+        {"role": "system", "content": "Be strict."},
+        {"role": "user", "content": "Hi, reply in JSON."},
+        {"role": "assistant", "content": "{}"},
+    ]
+    body = _to_gemini_request(msgs, json_mode=True)
+    assert body["systemInstruction"] == {"parts": [{"text": "Be strict."}]}
+    assert [c["role"] for c in body["contents"]] == ["user", "model"]
+    assert body["generationConfig"] == {"responseMimeType": "application/json"}
+
+
+def test_gemini_ok_parses_text_and_counts_thinking_tokens():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["key"] = request.headers["x-goog-api-key"]
+        return httpx.Response(200, json=GEMINI_OK)
+
+    out = call_gemini(MESSAGES, "gemini-2.5-flash", "secret-key", client=_client(handler))
+    assert out.status == "ok"
+    assert out.text == '{"summary": "x"}'
+    assert (out.prompt_tokens, out.completion_tokens) == (100, 30)
+    assert seen["url"].endswith("/gemini-2.5-flash:generateContent")
+    assert seen["key"] == "secret-key"
+    assert "secret-key" not in seen["url"]
+
+
+def test_gemini_json_mode_off_omits_generation_config():
+    assert "generationConfig" not in _to_gemini_request(MESSAGES, json_mode=False)
+
+
+def test_gemini_without_thinking_tokens_uses_answer_tokens():
+    body = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+        "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 7},
+    }
+    out = call_gemini(MESSAGES, "m", "k", client=_client(lambda r: httpx.Response(200, json=body)))
+    assert out.completion_tokens == 7
+
+
+def test_gemini_429_is_rate_limited():
+    out = call_gemini(MESSAGES, "m", "k", client=_client(lambda r: httpx.Response(429)))
+    assert out.status == "rate_limited"
+
+
+def test_gemini_503_is_error():
+    out = call_gemini(MESSAGES, "m", "k", client=_client(lambda r: httpx.Response(503)))
+    assert out.status == "error"
+    assert out.error == "HTTP 503"
+
+
+def test_gemini_timeout_is_error_without_leaking_key():
+    def handler(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    out = call_gemini(MESSAGES, "m", "secret-key", client=_client(handler))
+    assert out.status == "error"
+    assert "secret-key" not in (out.error or "")
+
+
+def test_gemini_blocked_response_without_candidates_is_error():
+    body = {"promptFeedback": {"blockReason": "SAFETY"}}
+    out = call_gemini(MESSAGES, "m", "k", client=_client(lambda r: httpx.Response(200, json=body)))
+    assert out.status == "error"
+
+
+def test_gemini_missing_key_makes_no_request():
+    def handler(request):
+        raise AssertionError("no request should be sent without a key")
+
+    out = call_gemini(MESSAGES, "m", "", client=_client(handler))
+    assert out.status == "error"
+
+@pytest.fixture
+def settings(monkeypatch):
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)  # tests never sleep
+    s = dataclasses.replace(
+        config.settings,
+        model_provider="groq", model_name="primary-model",
+        fallback_provider="gemini", fallback_model_name="fallback-model",
+        groq_api_key="groq-secret", gemini_api_key="gemini-secret",
+    )
+    monkeypatch.setattr(config, "settings", s)
+    return s
+
+
+def _script(monkeypatch, groq=(), gemini=()):
+    """Fake both providers; each call pops the next scripted outcome and is recorded."""
+    calls = {"groq": [], "gemini": []}
+    queues = {"groq": list(groq), "gemini": list(gemini)}
+
+    def make(name):
+        def fake(messages, model, api_key, json_mode=True, **kwargs):
+            calls[name].append({"model": model, "key": api_key, "json_mode": json_mode})
+            return queues[name].pop(0)
+        return fake
+
+    monkeypatch.setattr(model_client, "call_groq", make("groq"))
+    monkeypatch.setattr(model_client, "call_gemini", make("gemini"))
+    return calls
+
+
+def test_success_on_first_try(settings, monkeypatch):
+    calls = _script(monkeypatch, groq=[OK])
+    r = model_client.call_model(MESSAGES, "summarize_selection", "insp-1")
+    assert r.text == "{}"
+    assert (r.provider, r.model, r.is_fallback, r.fallback_reason) == ("groq", "primary-model", False, None)
+    assert len(calls["groq"]) == 1 and calls["gemini"] == []
+    rec = r.attempts[0]
+    assert (rec.status, rec.purpose, rec.inspection_id) == ("ok", "summarize_selection", "insp-1")
+    assert (rec.prompt_tokens, rec.completion_tokens, rec.latency_ms) == (10, 5, 50)
+
+
+def test_retry_succeeds_without_fallback(settings, monkeypatch):
+    calls = _script(monkeypatch, groq=[RATE, OK])
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text == "{}" and r.is_fallback is False
+    assert len(calls["groq"]) == 2 and calls["gemini"] == []
+    assert [a.status for a in r.attempts] == ["rate_limited", "ok"]
+
+
+def test_fallback_after_failed_retry(settings, monkeypatch):
+    calls = _script(monkeypatch, groq=[RATE, RATE], gemini=[OK])
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text == "{}"
+    assert (r.provider, r.model, r.is_fallback) == ("gemini", "fallback-model", True)
+    assert r.fallback_reason == "groq rate_limited after retry"
+    assert calls["gemini"][0]["model"] == "fallback-model"
+    assert [a.is_fallback for a in r.attempts] == [False, False, True]
+    assert r.attempts[2].fallback_reason == "groq rate_limited after retry"
+    assert r.attempts[0].fallback_reason is None
+
+
+def test_no_fallback_configured_returns_none_text(settings, monkeypatch):
+    monkeypatch.setattr(config, "settings", dataclasses.replace(settings, fallback_provider="", fallback_model_name=""))
+    calls = _script(monkeypatch, groq=[ERR, ERR])
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text is None and r.is_fallback is False
+    assert len(r.attempts) == 2 and calls["gemini"] == []
+
+
+def test_everything_fails_keeps_all_attempts(settings, monkeypatch):
+    _script(monkeypatch, groq=[ERR, ERR], gemini=[RATE])
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text is None and r.is_fallback is False
+    assert [a.status for a in r.attempts] == ["error", "error", "rate_limited"]
+    assert r.attempts[2].is_fallback is True
+
+
+def test_each_provider_gets_its_own_key_and_keys_never_appear_in_records(settings, monkeypatch):
+    calls = _script(monkeypatch, groq=[ERR, ERR], gemini=[OK])
+    r = model_client.call_model(MESSAGES, "p")
+    assert calls["groq"][0]["key"] == "groq-secret"
+    assert calls["gemini"][0]["key"] == "gemini-secret"
+    dumped = str(r.attempts) + str(r)
+    assert "groq-secret" not in dumped and "gemini-secret" not in dumped
+
+
+def test_json_mode_is_passed_through(settings, monkeypatch):
+    calls = _script(monkeypatch, groq=[OK])
+    model_client.call_model(MESSAGES, "p", json_mode=False)
+    assert calls["groq"][0]["json_mode"] is False
+
+
+def test_unknown_provider_does_not_crash(settings, monkeypatch):
+    monkeypatch.setattr(config, "settings", dataclasses.replace(
+        settings, model_provider="nope", fallback_provider="", fallback_model_name=""))
+    r = model_client.call_model(MESSAGES, "p")
+    assert r.text is None
+    assert [a.status for a in r.attempts] == ["error", "error"]
