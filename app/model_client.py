@@ -37,6 +37,7 @@ class ModelResult:
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 REQUEST_TIMEOUT = 30.0  # seconds
+TEMPERATURE = 0.2       # low: grounded summaries, not creative writing
 
 
 @dataclass
@@ -66,7 +67,7 @@ def call_groq(
     if not api_key:
         return ProviderOutcome("error", 0, error="GROQ_API_KEY is not set")
 
-    body: dict = {"model": model, "messages": messages}
+    body: dict = {"model": model, "messages": messages, "temperature": TEMPERATURE}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -120,11 +121,11 @@ def _to_gemini_request(messages: list[dict], json_mode: bool) -> dict:
             role = "model" if m.get("role") == "assistant" else "user"
             contents.append({"role": role, "parts": [{"text": text}]})
 
-    body: dict = {"contents": contents}
+    body: dict = {"contents": contents, "generationConfig": {"temperature": TEMPERATURE}}
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
     if json_mode:
-        body["generationConfig"] = {"responseMimeType": "application/json"}
+        body["generationConfig"]["responseMimeType"] = "application/json"
     return body
 
 
