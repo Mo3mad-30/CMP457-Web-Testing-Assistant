@@ -116,3 +116,10 @@ def test_local_file_page_sends_only_the_file_name():
 def test_web_page_url_is_kept():
     user = build_summary_messages(load_sample(), make_selection(["el-001"]))[1]["content"]
     assert payload_of(user)["page"]["url"] == load_sample().final_url
+
+
+def test_system_message_forbids_outside_knowledge():
+    system = build_summary_messages(load_sample(), make_selection(["el-001"]))[0]["content"]
+    assert ("Do not use knowledge about this site from outside the page data: do not mention usernames, "
+            "passwords, messages or other values that are not listed in the page data. If a value you need "
+            "is not there, ask the tester in clarifying_questions.") in system
