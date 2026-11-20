@@ -10,10 +10,8 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import db, runner_client
-from app.config import PROJECT_ROOT, settings
-
 from app import assistant, db, runner_client
+from app.config import PROJECT_ROOT, settings
 
 BASE_DIR = Path(__file__).resolve().parent
 
