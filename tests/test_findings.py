@@ -1,11 +1,10 @@
-"""Person B: validate Task 5 against the agreed sample without Task 3/7b."""
+"""Person B: validate Task 5 against the agreed sample (and the model panel with real AskResult/ModelResult)."""
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi.testclient import TestClient
-from jinja2 import Environment, FileSystemLoader
-
-from app.main import app
+from app.assistant import AskResult
+from app.main import app, templates
+from app.model_client import ModelResult
 from shared.schemas import Inspection, ModelCallRecord, ModelSuggestion, Selection
 
 
@@ -39,10 +38,7 @@ def test_selection_valid_and_invalid():
     assert client.get('/inspections/sample').text.count('checked') >= 3
 
 
-def test_model_panel_mock_ask_result():
-    # C's types are not present yet; test the specified attribute contract.
-    from types import SimpleNamespace
-    env = Environment(loader=FileSystemLoader(Path(__file__).resolve().parents[1] / 'app/templates'))
+def test_model_panel_renders_a_real_ask_result():
     call1 = ModelCallRecord(provider='groq', model='openai/gpt-oss-120b',
         purpose='summarize_selection', latency_ms=350, status='rate_limited',
         created_at=datetime.now(timezone.utc))
@@ -50,15 +46,15 @@ def test_model_panel_mock_ask_result():
         purpose='summarize_selection', latency_ms=450, status='ok', is_fallback=True,
         fallback_reason='groq rate_limited after retry', prompt_tokens=50,
         completion_tokens=20, created_at=datetime.now(timezone.utc))
-    ask = SimpleNamespace(
+    ask = AskResult(
         errors=[], warnings=['Review the locator'],
         suggestion=ModelSuggestion(summary='Login fields', referenced_element_ids=['el-001'],
             suggested_next_action='Draft a negative login test',
             clarifying_questions=['Which password is invalid?']),
-        result=SimpleNamespace(provider='gemini', model='gemini-flash',
+        result=ModelResult(text='{}', provider='gemini', model='gemini-flash',
             is_fallback=True, fallback_reason='groq rate_limited after retry',
             attempts=[call1, call2]))
-    html = env.get_template('_model_panel.html').render(ask=ask)
+    html = templates.env.get_template('_model_panel.html').render(ask=ask)  # the app's own environment (autoescape on)
     for text in ('Login fields', 'el-001', 'Draft a negative login test',
                  'Which password is invalid?', 'Fallback model answered',
                  '50', '20', '450 ms', 'Earlier / failed model attempts',
