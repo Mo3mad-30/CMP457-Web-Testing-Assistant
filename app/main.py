@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import db, runner_client
+from app import assistant, db, runner_client
 from app.config import PROJECT_ROOT, settings
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -175,3 +175,30 @@ def save_findings_selection(request: Request, inspection_id: str,
                 inspection, current, error=f"Selection not saved: {exc}"), status_code=400)
     return templates.TemplateResponse(request, "findings.html", _findings_context(
         inspection, selection, message="Selection saved"))
+
+
+# ---------------------------------------------------------------------------
+# Task 7b (Person C): "Ask model"
+# ---------------------------------------------------------------------------
+
+SAMPLE_ASK_ERROR = "Ask is not available on the sample scan. Scan a page first."
+
+
+@app.post("/inspections/{inspection_id}/ask", response_class=HTMLResponse)
+def ask_model(request: Request, inspection_id: str):
+    """Ask the model about the saved selection and show the validated answer under the table."""
+    inspection = _findings_inspection(inspection_id)
+    selection = _findings_selection(inspection_id)
+    if inspection_id == "sample":  # plan decision 13: usage evidence only refers to real scans
+        return templates.TemplateResponse(
+            request, "findings.html", _findings_context(inspection, selection, error=SAMPLE_ASK_ERROR),
+            status_code=400,
+        )
+    if selection is None:
+        error = "Save a selection and a testing goal before asking the model."
+        return templates.TemplateResponse(
+            request, "findings.html", _findings_context(inspection, None, error=error), status_code=400
+        )
+    context = _findings_context(inspection, selection)
+    context["ask"] = assistant.summarize_selection(inspection_id)  # plan 6.6
+    return templates.TemplateResponse(request, "findings.html", context)

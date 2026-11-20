@@ -95,3 +95,46 @@ def test_page_content_is_escaped(client, isolated_settings):
     assert evil not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "' onmouseover='alert(2)" not in html
+
+
+def test_sample_page_forms_post_to_the_sample_url_and_saving_works(client, monkeypatch):
+    monkeypatch.setattr(main, "_sample_selection", None)
+    page = client.get("/inspections/sample").text
+    assert 'action="/inspections/sample/select"' in page
+    assert "/inspections/insp-0001/" not in page  # the sample's own id is not a route
+    saved = client.post("/inspections/sample/select",
+                        data={"element_ids": ["el-001", "el-002"], "goal": "verify login rejects a wrong password"})
+    assert saved.status_code == 200 and "Selection saved" in saved.text
+    assert 'action="/inspections/sample/select"' in saved.text
+    # Ask stays disabled on the sample even after saving (plan decision 13)
+    assert '<button id="ask-model" type="submit" disabled>' in saved.text
+    assert "Scan a page to ask the model." in saved.text
+
+
+def test_saved_scan_forms_post_to_the_scan_url(client, isolated_settings):
+    save_scan(isolated_settings)
+    page = client.get(f"/inspections/{SCAN_ID}").text
+    assert f'action="/inspections/{SCAN_ID}/select"' in page and f'action="/inspections/{SCAN_ID}/ask"' in page
+    assert "Scan a page to ask the model." not in page
+
+
+def _attempt(status, prompt=None, completion=None, latency=0):
+    from datetime import datetime, timezone
+    from shared.schemas import ModelCallRecord
+    return ModelCallRecord(provider="groq", model="openai/gpt-oss-120b", purpose="summarize_selection",
+                           inspection_id=SCAN_ID, prompt_tokens=prompt, completion_tokens=completion,
+                           latency_ms=latency, status=status, created_at=datetime.now(timezone.utc))
+
+
+def test_evidence_line_uses_the_last_successful_attempt():
+    from app.assistant import AskResult
+    from app.model_client import ModelResult
+    attempts = [_attempt("ok", 609, 541, 2236), _attempt("invalid_output")]
+    ask = AskResult(errors=["Invalid output: the model's answer failed validation twice."],
+                    result=ModelResult(text="x", provider="groq", model="openai/gpt-oss-120b", attempts=attempts))
+    html = main.templates.env.get_template("_model_panel.html").render(ask=ask)
+    evidence = html.split('class="evidence"', 1)[1].split("<details>", 1)[0]
+    assert "<strong>Prompt tokens:</strong> 609" in evidence
+    assert "<strong>Completion tokens:</strong> 541" in evidence
+    assert "<strong>Latency:</strong> 2236 ms" in evidence
+    assert "Earlier / failed model attempts (1)" in html and "invalid_output" in html.split("<details>", 1)[1]
