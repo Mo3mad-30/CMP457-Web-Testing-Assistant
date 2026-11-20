@@ -1,14 +1,15 @@
-import inspect
-from app.model_client import ModelResult, call_model
-import json
-import httpx
-from app.model_client import call_groq
-from app.model_client import _to_gemini_request, call_gemini
+"""Offline tests for the model client: the network and the database are faked."""
 import dataclasses
+import inspect
+import json
+
+import httpx
 import pytest
-from app import config, model_client
-from app.model_client import ProviderOutcome
+
 from app import config, db, model_client
+from app.model_client import (
+    ModelResult, ProviderOutcome, _to_gemini_request, call_gemini, call_groq, call_model,
+)
 
 OK = ProviderOutcome("ok", 50, text="{}", prompt_tokens=10, completion_tokens=5)
 RATE = ProviderOutcome("rate_limited", 5, error="HTTP 429")
@@ -60,6 +61,7 @@ def test_groq_ok_parses_text_tokens_and_sends_expected_request():
     assert seen["auth"] == "Bearer secret-key"
     assert seen["body"]["model"] == "openai/gpt-oss-120b"
     assert seen["body"]["response_format"] == {"type": "json_object"}
+    assert seen["body"]["temperature"] == model_client.TEMPERATURE == 0.2
 
 
 def test_groq_json_mode_off_omits_response_format():
@@ -128,7 +130,7 @@ def test_gemini_request_conversion():
     body = _to_gemini_request(msgs, json_mode=True)
     assert body["systemInstruction"] == {"parts": [{"text": "Be strict."}]}
     assert [c["role"] for c in body["contents"]] == ["user", "model"]
-    assert body["generationConfig"] == {"responseMimeType": "application/json"}
+    assert body["generationConfig"] == {"temperature": 0.2, "responseMimeType": "application/json"}
 
 
 def test_gemini_ok_parses_text_and_counts_thinking_tokens():
@@ -148,8 +150,8 @@ def test_gemini_ok_parses_text_and_counts_thinking_tokens():
     assert "secret-key" not in seen["url"]
 
 
-def test_gemini_json_mode_off_omits_generation_config():
-    assert "generationConfig" not in _to_gemini_request(MESSAGES, json_mode=False)
+def test_gemini_json_mode_off_omits_the_json_mime_type():
+    assert _to_gemini_request(MESSAGES, json_mode=False)["generationConfig"] == {"temperature": 0.2}
 
 
 def test_gemini_without_thinking_tokens_uses_answer_tokens():
@@ -196,7 +198,7 @@ def test_gemini_missing_key_makes_no_request():
 
 @pytest.fixture
 def settings(monkeypatch, logged):
-    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)  # tests never sleep
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 0, "error": 0})  # tests never sleep
     s = dataclasses.replace(
         config.settings,
         model_provider="groq", model_name="primary-model",
@@ -337,7 +339,7 @@ def test_logging_failure_does_not_break_the_call(settings, monkeypatch):
 
 
 def test_attempts_are_stored_in_the_real_database(isolated_settings, monkeypatch):
-    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", 0)
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 0, "error": 0})
     monkeypatch.setattr(config, "settings", dataclasses.replace(
         config.settings, model_provider="groq", model_name="primary-model",
         fallback_provider="gemini", fallback_model_name="fallback-model"))
@@ -352,3 +354,12 @@ def test_attempts_are_stored_in_the_real_database(isolated_settings, monkeypatch
     with db.connect() as conn:
         texts = [row[0] for row in conn.execute("SELECT response_text FROM model_calls ORDER BY id")]
     assert texts == [None, None, "{}"]
+
+@pytest.mark.parametrize("first, wait", [(RATE, 5.0), (ERR, 1.0)])
+def test_retry_wait_depends_on_the_failure(settings, monkeypatch, first, wait):
+    monkeypatch.setattr(model_client, "RETRY_WAIT_SECONDS", {"rate_limited": 5.0, "error": 1.0})
+    slept = []
+    monkeypatch.setattr(model_client.time, "sleep", slept.append)
+    _script(monkeypatch, groq=[first, OK])
+    model_client.call_model(MESSAGES, "p")
+    assert slept == [wait]

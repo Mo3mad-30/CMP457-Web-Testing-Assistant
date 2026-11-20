@@ -1,18 +1,20 @@
 """Model client: the only place in the app that talks to a language model.
 
-Names and signatures follow plan.md section 6.7. The behavior is built step by step:
-provider calls, retry, fallback and logging.
+Names and signatures follow plan.md section 6.7: provider calls, one retry, automatic fallback,
+and a log row for every attempt. Providers are called directly with httpx (plan decision 3a).
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from shared.schemas import ModelCallRecord
-import time
-from typing import Literal
-import httpx
-from datetime import datetime, timezone
-from app import config
-from app import config, db
+
 import logging
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Literal
+
+import httpx
+
+from app import config, db
+from shared.schemas import ModelCallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class ModelResult:
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 REQUEST_TIMEOUT = 30.0  # seconds
+TEMPERATURE = 0.2       # low: grounded summaries, not creative writing
 
 
 @dataclass
@@ -64,7 +67,7 @@ def call_groq(
     if not api_key:
         return ProviderOutcome("error", 0, error="GROQ_API_KEY is not set")
 
-    body: dict = {"model": model, "messages": messages}
+    body: dict = {"model": model, "messages": messages, "temperature": TEMPERATURE}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -118,11 +121,11 @@ def _to_gemini_request(messages: list[dict], json_mode: bool) -> dict:
             role = "model" if m.get("role") == "assistant" else "user"
             contents.append({"role": role, "parts": [{"text": text}]})
 
-    body: dict = {"contents": contents}
+    body: dict = {"contents": contents, "generationConfig": {"temperature": TEMPERATURE}}
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
     if json_mode:
-        body["generationConfig"] = {"responseMimeType": "application/json"}
+        body["generationConfig"]["responseMimeType"] = "application/json"
     return body
 
 
@@ -180,16 +183,8 @@ def call_gemini(
         completion_tokens=completion,
     )
 
-# def call_model(
-#     messages: list[dict],
-#     purpose: str,
-#     inspection_id: str | None = None,
-#     json_mode: bool = True,
-# ) -> ModelResult:
-#     """Send messages to the primary model, retry once, then fall back (steps 3-6)."""
-#     raise NotImplementedError("call_model is built in steps 3 to 6")
-
-RETRY_WAIT_SECONDS = 2.0  # pause before the single retry of the primary model
+# Pause before the single retry of the primary model: longer after a rate limit.
+RETRY_WAIT_SECONDS = {"rate_limited": 5.0, "error": 1.0}
 
 
 def _send(provider: str, messages: list[dict], model: str, api_key: str, json_mode: bool) -> ProviderOutcome:
@@ -239,13 +234,6 @@ def call_model(
     s = config.settings  # read at call time so tests can swap settings
     result = ModelResult(text=None, provider=s.model_provider, model=s.model_name)
 
-    # def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
-    #     outcome = _send(provider, messages, model, _api_key(provider), json_mode)
-    #     result.attempts.append(
-    #         _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
-    #     )
-    #     return outcome
-
     def attempt(provider: str, model: str, is_fallback: bool = False, reason: str | None = None) -> ProviderOutcome:
         outcome = _send(provider, messages, model, _api_key(provider), json_mode)
         record = _record(outcome, provider, model, purpose, inspection_id, is_fallback, reason)
@@ -258,7 +246,7 @@ def call_model(
     # 1. primary, then one retry after a short wait
     outcome = attempt(s.model_provider, s.model_name)
     if outcome.status != "ok":
-        time.sleep(RETRY_WAIT_SECONDS)
+        time.sleep(RETRY_WAIT_SECONDS.get(outcome.status, 1.0))
         outcome = attempt(s.model_provider, s.model_name)
     if outcome.status == "ok":
         result.text = outcome.text
