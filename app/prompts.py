@@ -57,8 +57,8 @@ def compact_element(element: Element) -> dict:
     }
     compact = {
         "id": element.element_id,
-        "tag": element.tag,
-        "role": element.role,
+        "tag": _clean(element.tag, 40),
+        "role": _clean(element.role, 40),  # copied from the page's own role="..." attribute
         "name": _clean(element.accessible_name, MAX_TEXT),
         "text": _clean(element.text, MAX_TEXT),
         "label": _clean(element.label, MAX_TEXT),
