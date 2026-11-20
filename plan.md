@@ -60,6 +60,10 @@ sample inspection output · model usage/timing evidence.
 | 9 | Schema | One shared data contract (`shared/schemas.py`) for inspection, selection, model output and usage log; tests keep the sample in sync | Lets the three of us work in parallel |
 | 10 | Grounding rule | A model answer must cite **at least one** element id, and every cited id must exist in the scan; otherwise it is rejected (if Task 7a's branch lacks this, add it during the 7b review) | An answer that cites nothing cannot be checked against the scan |
 | 11 | Keys | Each team member keeps their **own `.env`** with their own keys (copied from `.env.example`, never committed). New settings are added to `.env.example` with an empty value | Separate free-tier limits per person; no shared secrets |
+| 12 | Invalid output | A rejected answer adds **one extra `model_calls` row** with status `invalid_output` (same provider/model, rejected text, no tokens, latency 0); `ok` rows are never changed. The panel's evidence line shows the **last successful** attempt | Honest, append-only evidence; no double-counted tokens |
+| 13 | Sample scan | Save selection works on the sample; **Ask is not offered** there ("Scan a page first"). The Ask route calls `summarize_selection` (plan 6.6) | Usage evidence only refers to real scans |
+| 14 | No outside knowledge | The system prompt forbids values that are not in the page data (usernames, passwords, messages); validation can only check ids | The model used a site username it knew from elsewhere |
+| 15 | Model call settings | Temperature 0.2; retry waits 5 s after a rate limit, 1 s after an error; only the file name is sent for local `file://` pages; unused `openai` package removed | Reproducible answers; no local paths in prompts |
 
 Rejected and why: sending every call to both models, or a second model judging the first (double the
 calls; deterministic validation already checks); local Ollama (weak, GPU-bound); React (build step,
@@ -98,9 +102,9 @@ record. Run `pytest` after every change.
 | Task 3: Storage | Done | Person A (Mohammad) | `app/db.py` + 11 tests (29 total passing); tables created at app startup |
 | Task 4: Runner client + scan pages | Done | Person A (Mohammad) | `app/runner_client.py`, scan/history/screenshot routes, `index.html`, `history.html`; 48 tests passing |
 | Task 5: Findings page | Done | Person B | Reviewed, 2 small integration fixes + 8 tests added; merged to `main` (PR #1) |
-| Task 6: Model client with fallback | In review | Person C | Branch `task-6-model-client`: logic and 33 tests pass; uses `httpx` (decision pending); no live call verified yet (no key) |
-| Task 7a: Prompt + validation | In review | Person C | Branch `task-7a-prompt-validation`: 19 tests pass; needs fixes `16bdfa7` (role/tag injection) and `00d405e` (no cited ids = error) |
-| Task 7b: "Ask model" wiring | To do | Person C | After Tasks 3, 5, 6 |
+| Task 6: Model client with fallback | Fix round | Person C | Branch `task-6-model-client`: logic and 33 tests pass; uses `httpx` (decision pending); no live call verified yet (no key) |
+| Task 7a: Prompt + validation | Fix round | Person C | Branch `task-7a-prompt-validation`: 19 tests pass; needs fixes `16bdfa7` (role/tag injection) and `00d405e` (no cited ids = error) |
+| Task 7b: "Ask model" wiring | Fix round | Person C | Branch `task-7b-ask-model` reviewed: real Ask works (local page 609+541 tokens, 2.2 s; saucedemo 636+379, 1.6 s), live Groq→Gemini fallback works; 135 tests with fixes |
 | Task 8: Evidence package + README | Later | | Assigned after Tasks 3–7 |
 | Task 9: Final rubric review | Later | | Assigned after Task 8 |
 
@@ -404,10 +408,48 @@ if still invalid, report "invalid output". Route `POST /inspections/{inspection_
 **Done when:** selecting username/password/login with the goal "verify login rejects a wrong
 password" returns a grounded answer citing those ids, with tokens and latency shown in B's panel.
 
-### Later (assigned after Tasks 3–7)
-- **Task 8: Evidence package + README:** real sample scan, usage page with CSV export, final README,
-  demo recording.
-- **Task 9: Final rubric review:** every rubric row has evidence; design doc matches the code.
+### Finishing Phase 1 (after Tasks 6 and 7 are merged)
+
+**Step 1: Combined fix round and merge of Tasks 6, 7a, 7b** (Person C, reviewed by A): one fix prompt with
+every item from both reviews (including the invalid-output rule if 7b lacks it); merge 6 → 7a → 7b.
+
+**Step 2: Live verification and evidence** (A): real Ask on the local test page and saucedemo; record
+provider, model, tokens, latency; one fallback run; export the model-call log.
+
+**Task 8: Evidence package + README** (split):
+- [ ] Replace the handwritten `docs/sample_inspection.json` with a real saucedemo scan (+ its screenshot).
+- [ ] Usage evidence: a small way to export the model-call log (`/usage` page with "Export CSV", or a
+  one-line script) → `docs/model_usage.csv`.
+- [ ] Show scan (browser) time separately from model response time (the brief asks for this); today only
+  model latency is recorded.
+- [ ] README: setup on Windows/macOS (venv, `playwright install chromium`, own `.env` with own keys),
+  run, model configuration, resource limits, troubleshooting (Chromium download, pager, port in use).
+- [ ] `docs/DEMO.md` + a 3–5 minute recording of the demo script (section 8).
+- [ ] Optional: a ready-made CSS file linked in `base.html` for a cleaner demo.
+
+**Design doc gaps to close:**
+- [ ] "Ask model" flow (from the 7b review): retry on validation failure, invalid-output recording, what
+  the tester sees in each outcome.
+- [ ] Real measured tokens and latency (local page and saucedemo) and the hardware/OS/Python used.
+- [ ] A "Testing and evidence" section: test count and what the tests cover, the end-to-end run, where the
+  sample output and usage CSV are; remove the old test count from the findings section.
+- [ ] A short "How Phase 2 uses Phase 1 results" table (snapshot → test design, locators → code
+  generation, stored scans → rescan diff, selections → approved scope, call log → usage dashboard).
+- [ ] A data-flow diagram with the approval gates marked (the flow is only a list today).
+- [ ] Say that every model call is fresh in Phase 1 (no cached answers), and that scan time and model time
+  are shown separately.
+- [ ] Note that observations and business-rule assumptions are kept apart (the model asks when expected
+  behavior was not observed).
+- [ ] Limitations: approximate accessible names, single-user local app, sample-scan selections in memory.
+- [ ] Final read-through for length ("short design document") and export to PDF for submission.
+
+**Task 9: Final review and submission** (all):
+- [ ] Rubric check: every row has evidence (screen, file, doc section).
+- [ ] Clean-machine check: clone, follow the README, run the demo.
+- [ ] Secrets check: no `.env`, keys or `data/` in the repo or the submission.
+- [ ] Code-discussion prep: each person can explain every task, not only their own.
+- [ ] Package: repo link or zip, design doc PDF, demo video, sample inspection, usage CSV.
+- [ ] Follow-ups from the Task 5 review (small fixes) and the open "Ask on the sample scan" decision.
 
 ### Done
 - **Task 1: Local test page** (`tests/fixtures/login.html`): login form with labeled fields,
@@ -458,3 +500,5 @@ password" returns a grounded answer citing those ids, with tokens and latency sh
 | 2026-11-20 | Tasks 6 and 7a reviewed (not merged): both pass with `main` (112 tests with fixes); injection fix and empty-citation fix proposed; open decisions: httpx vs OpenAI library, how `invalid_output` is recorded, failure-reason message, Gemini model id; live call still to verify |
 | 2026-11-20 | Decisions: httpx accepted for the model client; fallback model gemini-3.5-flash; at least one cited element required for grounding; one .env per person. Deferred to the 7b review: failure-reason message, temperature/retry waits/cleanup, how invalid_output is recorded |
 | 2026-11-20 | Agreed (on hold until the 7b review): record a failed validation as one extra `model_calls` row with status `invalid_output` (same provider/model, rejected answer as response text, no tokens, latency 0); apply in the combined fix round only if 7b does not already handle it |
+| 2026-11-20 | Phase 1 finishing list added (fix round, live evidence, Task 8 split, design-doc gaps, Task 9 checklist); design doc data-flow step 1 corrected (goal is set on the findings page, not with the URL) |
+| 2026-11-21 | Task 7b reviewed. Decisions 12–15 (invalid-output row, no Ask on the sample scan, no outside knowledge, model call settings). One combined fix round for Tasks 6, 7a, 7b prepared (fixes from both reviews + sample form fix + panel evidence line); merge after confirmation. Design doc gained an "Asking the model" section with measured tokens and latency |
