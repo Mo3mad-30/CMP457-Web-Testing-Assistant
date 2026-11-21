@@ -1,0 +1,176 @@
+{
+  "inspection_id": "insp-20261121-181212-5190",
+  "url": "https://www.saucedemo.com/",
+  "final_url": "https://www.saucedemo.com/",
+  "title": "Swag Labs",
+  "scanned_at": "2026-11-21T18:12:31.176552Z",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "scope_selector": null,
+  "screenshot_path": "data/jobs/insp-20261121-181212-5190/screenshot.png",
+  "elements": [
+    {
+      "element_id": "el-001",
+      "tag": "input",
+      "role": "textbox",
+      "accessible_name": "Username",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "user-name",
+        "name": "user-name",
+        "type": "text",
+        "placeholder": "Username",
+        "value": "",
+        "aria-label": "Username",
+        "data-test": "username"
+      },
+      "css_path": "#user-name",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 494.0,
+        "y": 153.8000030517578,
+        "width": 292.0,
+        "height": 38.400001525878906
+      },
+      "locators": [
+        {
+          "strategy": "role",
+          "value": "get_by_role(\"textbox\", name=\"Username\", exact=True)",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "placeholder",
+          "value": "get_by_placeholder(\"Username\", exact=True)",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#user-name\")",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test=\\\"username\\\"]\")",
+          "match_count": 1,
+          "is_unique": true
+        }
+      ],
+      "best_locator": {
+        "strategy": "role",
+        "value": "get_by_role(\"textbox\", name=\"Username\", exact=True)",
+        "match_count": 1,
+        "is_unique": true
+      }
+    },
+    {
+      "element_id": "el-002",
+      "tag": "input",
+      "role": null,
+      "accessible_name": "Password",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "password",
+        "name": "password",
+        "type": "password",
+        "placeholder": "Password",
+        "aria-label": "Password",
+        "data-test": "password"
+      },
+      "css_path": "#password",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 494.0,
+        "y": 207.1999969482422,
+        "width": 292.0,
+        "height": 38.400001525878906
+      },
+      "locators": [
+        {
+          "strategy": "placeholder",
+          "value": "get_by_placeholder(\"Password\", exact=True)",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#password\")",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test=\\\"password\\\"]\")",
+          "match_count": 1,
+          "is_unique": true
+        }
+      ],
+      "best_locator": {
+        "strategy": "placeholder",
+        "value": "get_by_placeholder(\"Password\", exact=True)",
+        "match_count": 1,
+        "is_unique": true
+      }
+    },
+    {
+      "element_id": "el-003",
+      "tag": "input",
+      "role": "button",
+      "accessible_name": "Login",
+      "text": null,
+      "label": null,
+      "attributes": {
+        "id": "login-button",
+        "name": "login-button",
+        "type": "submit",
+        "value": "Login",
+        "data-test": "login-button"
+      },
+      "css_path": "#login-button",
+      "visible": true,
+      "enabled": true,
+      "bounding_box": {
+        "x": 494.0,
+        "y": 300.6000061035156,
+        "width": 292.0,
+        "height": 48.79999923706055
+      },
+      "locators": [
+        {
+          "strategy": "role",
+          "value": "get_by_role(\"button\", name=\"Login\", exact=True)",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "id",
+          "value": "locator(\"#login-button\")",
+          "match_count": 1,
+          "is_unique": true
+        },
+        {
+          "strategy": "css",
+          "value": "locator(\"[data-test=\\\"login-button\\\"]\")",
+          "match_count": 1,
+          "is_unique": true
+        }
+      ],
+      "best_locator": {
+        "strategy": "role",
+        "value": "get_by_role(\"button\", name=\"Login\", exact=True)",
+        "match_count": 1,
+        "is_unique": true
+      }
+    }
+  ],
+  "warnings": [],
+  "element_count": 3
+}

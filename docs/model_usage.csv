@@ -1,0 +1,2 @@
+id,created_at,provider,model,purpose,inspection_id,prompt_tokens,completion_tokens,latency_ms,status,is_fallback,fallback_reason
+1,2026-11-21T18:14:03.356861+00:00,groq,openai/gpt-oss-120b,summarize_selection,insp-20261121-181212-5190,690,315,2190,ok,0,
